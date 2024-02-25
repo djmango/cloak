@@ -1,10 +1,9 @@
-use actix_web::{dev::PeerAddr, error, get, web, Error, HttpRequest, HttpResponse, Responder};
-// use awc::Client;
+use actix_web::{get, web, Error, HttpResponse, Responder};
 use shuttle_actix_web::ShuttleActixWeb;
 use tokio::time::sleep;
 
 use bytes::Bytes;
-use futures::{future, stream, StreamExt};
+use futures::{future, stream};
 use rand::{rngs::ThreadRng, thread_rng, Rng};
 use std::convert::Infallible;
 use std::time::Duration;
