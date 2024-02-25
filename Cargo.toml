@@ -5,13 +5,10 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4.3.1"
-awc = "3.4.0"
 futures = "0.3.30"
 shuttle-actix-web = "0.39.0"
 shuttle-runtime = "0.39.0"
 tokio = { version = "1.26.0", features = ["full", "time"] }
-url = "2.2"
-env_logger = "0.11.2"
 log = "0.4.20"
 async-openai = "0.18.3"
 rand = "0.8.5"
