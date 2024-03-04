@@ -1221,6 +1221,7 @@ dependencies = [
  "color-eyre",
  "futures",
  "rand",
+ "serde_json",
  "shuttle-actix-web",
  "shuttle-runtime",
  "shuttle-secrets",
