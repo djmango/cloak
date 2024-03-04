@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-mod openai;
+mod oai;
 
 #[get("/")]
 async fn hello_world() -> &'static str {
@@ -107,8 +107,8 @@ async fn main(
         cfg.service(
             web::scope("/oai")
                 .service(hello_world)
-                .service(openai::ai)
-                .service(openai::chat),
+                .service(oai::ai)
+                .service(oai::chat),
         )
         .service(web::scope("").service(hello_world).service(stream_rand))
         .app_data(web::Data::new(state.clone()));
