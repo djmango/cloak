@@ -1,13 +1,8 @@
-use actix_web::{get, web, Error, HttpResponse, Responder};
+use actix_web::{get, web};
 use anyhow::anyhow;
 use async_openai::{config::OpenAIConfig, Client};
-use bytes::Bytes;
-use futures::stream;
-use rand::{thread_rng, Rng};
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_secrets::SecretStore;
-use std::time::Duration;
-use tokio::time::sleep;
 use tracing::{info, warn};
 
 mod oai;
@@ -15,40 +10,6 @@ mod oai;
 #[get("/")]
 async fn hello_world() -> &'static str {
     "Hello World!"
-}
-
-async fn generate_random_chars() -> String {
-    let mut rng = thread_rng();
-    (0..10)
-        .map(|_| (rng.gen_range(b'a'..=b'z') as char))
-        .collect()
-}
-
-#[get("/stream_rand")]
-async fn stream_rand() -> impl Responder {
-    // Simulate streaming of data by sending a chunk every second
-    let body = stream::unfold(0, |state| async move {
-        // Stop after 5 chunks
-        if state >= 5 {
-            return None;
-        }
-
-        // Simulate some processing delay
-        sleep(Duration::from_secs(1)).await;
-
-        // Generate chunk
-        // let chunk = generate_random_chars().await;
-        // let chunk = format!("{}", generate_random_chars().await);
-        let chunk = format!("Chunk {}: test\n", generate_random_chars().await);
-        // ITS JUST THE NEWLINE
-
-        // Return the chunk and the next state
-        Some((Ok::<Bytes, Error>(Bytes::from(chunk)), state + 1))
-    });
-
-    HttpResponse::Ok()
-        .content_type("application/json")
-        .streaming(body)
 }
 
 struct AppConfig {
@@ -104,14 +65,9 @@ async fn main(
     };
 
     let config = move |cfg: &mut web::ServiceConfig| {
-        cfg.service(
-            web::scope("/oai")
-                .service(hello_world)
-                .service(oai::ai)
-                .service(oai::chat),
-        )
-        .service(web::scope("").service(hello_world).service(stream_rand))
-        .app_data(web::Data::new(state.clone()));
+        cfg.service(web::scope("/oai").service(hello_world).service(oai::chat))
+            .service(web::scope("").service(hello_world))
+            .app_data(web::Data::new(state.clone()));
     };
 
     Ok(config.into())
