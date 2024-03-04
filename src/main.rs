@@ -13,7 +13,7 @@ use tracing::{info, warn};
 mod openai;
 
 #[get("/")]
-async fn hello_world(state: web::Data<AppState>) -> &'static str {
+async fn hello_world() -> &'static str {
     "Hello World!"
 }
 
@@ -104,13 +104,9 @@ async fn main(
     };
 
     let config = move |cfg: &mut web::ServiceConfig| {
-        cfg.service(
-            web::scope("")
-                .service(hello_world)
-                .service(stream_rand)
-                .service(openai::ai)
-                .app_data(web::Data::new(state)),
-        );
+        cfg.service(web::scope("/oai").service(hello_world).service(openai::ai))
+            .service(web::scope("").service(hello_world).service(stream_rand))
+            .app_data(web::Data::new(state.clone()));
     };
 
     Ok(config.into())
