@@ -1214,17 +1214,23 @@ dependencies = [
 name = "invisibility"
 version = "0.1.0"
 dependencies = [
+ "actix-service",
  "actix-web",
  "anyhow",
  "async-openai",
  "bytes",
  "color-eyre",
  "futures",
+ "futures-util",
+ "jsonwebtoken",
+ "once_cell",
  "rand",
+ "serde",
  "serde_json",
  "shuttle-actix-web",
  "shuttle-runtime",
  "shuttle-secrets",
+ "thiserror",
  "tokio",
  "tracing",
 ]

@@ -4,6 +4,7 @@ use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionStrea
 use bytes::Bytes;
 use futures::stream::StreamExt;
 use serde_json::to_string;
+use std::time::Instant;
 use tracing::info;
 
 use crate::AppState;
@@ -35,14 +36,39 @@ async fn chat(
         .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
     // Construct a streaming HTTP response
+    // let stream: futures::stream::BoxStream<Result<Bytes, Error>> = response
+    //     .map(
+    //         |item_result: Result<CreateChatCompletionStreamResponse, OpenAIError>| match item_result
+    //         {
+    //             Ok(item) => to_string(&item)
+    //                 .map_err(actix_web::error::ErrorInternalServerError)
+    //                 .map(|json_string| Bytes::from(format!("data: {}\n\n", json_string))),
+    //             Err(e) => Err(actix_web::error::ErrorInternalServerError(e.to_string())),
+    //         },
+    //     )
+    //     .boxed();
+
     let stream: futures::stream::BoxStream<Result<Bytes, Error>> = response
         .map(
-            |item_result: Result<CreateChatCompletionStreamResponse, OpenAIError>| match item_result
-            {
-                Ok(item) => to_string(&item)
-                    .map_err(actix_web::error::ErrorInternalServerError)
-                    .map(|json_string| Bytes::from(format!("data: {}\n\n", json_string))),
-                Err(e) => Err(actix_web::error::ErrorInternalServerError(e.to_string())),
+            |item_result: Result<CreateChatCompletionStreamResponse, OpenAIError>| {
+                let start_time = Instant::now();
+
+                match item_result {
+                    Ok(item) => {
+                        to_string(&item)
+                            .map_err(actix_web::error::ErrorInternalServerError)
+                            .map(|json_string| {
+                                let elapsed_ms = start_time.elapsed().as_millis();
+                                println!("Item processed in {}ms", elapsed_ms); // Log processing time
+
+                                let loggable_value = format!("data: {}\n\n", json_string);
+                                println!("Transmitting: {}", loggable_value); // Log final value being transmitted
+
+                                Bytes::from(loggable_value)
+                            })
+                    }
+                    Err(e) => Err(actix_web::error::ErrorInternalServerError(e.to_string())),
+                }
             },
         )
         .boxed();
