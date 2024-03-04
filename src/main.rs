@@ -63,7 +63,6 @@ async fn main(
             web::scope("")
                 .service(hello_world)
                 .service(web::scope("/oai").service(oai::chat))
-                // .wrap(middleware::logging::SayHi)
                 .wrap(Logger::new(
                     "%t %{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T",
                 ))
