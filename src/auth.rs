@@ -1,12 +1,11 @@
-use actix_web::{
-    dev::Payload, error::ResponseError, http::StatusCode, Error, FromRequest, HttpRequest,
-    HttpResponse,
-};
-use futures::future::{ready, Ready};
-use jsonwebtoken::{decode, DecodingKey, EncodingKey, Validation};
+use actix_web::{get, web, Responder};
+use chrono::{DateTime, Utc};
+use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::fmt;
+use tracing::{error, info};
+
+use crate::AppConfig;
 
 #[derive(Clone)]
 pub struct JWTKeys {
@@ -23,147 +22,141 @@ impl JWTKeys {
     }
 }
 
-#[derive(Debug)]
-pub enum AuthError {
-    InvalidToken,
-    WrongCredentials,
-    TokenCreation,
-    MissingCredentials,
+#[derive(Deserialize)]
+struct AuthCallbackQuery {
+    code: String,
 }
 
-impl fmt::Display for AuthError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            AuthError::InvalidToken => write!(f, "Invalid token"),
-            AuthError::WrongCredentials => write!(f, "Wrong credentials"),
-            AuthError::TokenCreation => write!(f, "Token creation error"),
-            AuthError::MissingCredentials => write!(f, "Missing credentials"),
-        }
-    }
+#[derive(Serialize, Deserialize, Debug)]
+struct WorkOSUser {
+    object: String,
+    id: String,
+    email: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    email_verified: bool,
+    profile_picture_url: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
-// Implementing std::error::Error trait for AuthError.
-impl std::error::Error for AuthError {}
+// For the request payload
+#[derive(Serialize)]
+struct WorkOSAuthRequest {
+    client_id: String,
+    client_secret: String,
+    grant_type: String,
+    code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ip_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    invitation_code: Option<String>,
+}
 
-impl ResponseError for AuthError {
-    // Optionally implement the `error_response()` method directly
-    // Or implement `status_code()` and `error_response()` separately for more control
-    fn error_response(&self) -> HttpResponse {
-        let (status, error_message) = match self {
-            AuthError::WrongCredentials => (StatusCode::UNAUTHORIZED, "Wrong credentials"),
-            AuthError::MissingCredentials => (StatusCode::BAD_REQUEST, "Missing credentials"),
-            AuthError::TokenCreation => (StatusCode::INTERNAL_SERVER_ERROR, "Token creation error"),
-            AuthError::InvalidToken => (StatusCode::BAD_REQUEST, "Invalid token"),
-        };
-
-        let body = json!({
-            "error": error_message,
-        });
-
-        HttpResponse::build(status).json(body)
-    }
+// For the response
+#[derive(Deserialize)]
+struct WorkOSAuthResponse {
+    user: WorkOSUser,
+    organization_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    username: String,
+    sub: String,
     exp: usize,
 }
 
-// impl FromRequest for Claims {
-//     type Error = Error;
-//     type Future = Ready<Result<Claims, Error>>;
+// /workos/callback?code=01HR5WZ128D1Z7P95BDBT0
+#[get("/workos/callback")]
+async fn auth_callback(
+    app_config: web::Data<AppConfig>,
+    info: web::Query<AuthCallbackQuery>,
+) -> Result<impl Responder, actix_web::Error> {
+    let code = &info.code;
+    // Exchange the code for user information using the WorkOS API
+    // let auth_response = match exchange_code_for_user(code, app_config.get_ref().clone()).await {
+    //     Ok(info) => info,
+    //     Err(_) => {
+    //         // return actix_web::error::ErrorInternalServerError("Failed to exchange code for user")
+    //         // .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    //     }
+    // };
+    //
+    let auth_response = exchange_code_for_user(code, app_config.get_ref().clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
-//     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-//         // This assumes you have some struct KEYS in scope with decoding info
-//         // Replace `your_decoding_key_here` with actual logic to retrieve the key
-//         let decoding_key = DecodingKey::from_secret("your_decoding_key_here".as_ref());
+    // Sign a JWT with the user info
+    // let jwt = match sign_jwt(&auth_response.user, app_config.get_ref().clone()) {
+    //     Ok(token) => token,
+    //     Err(_) => return actix_web::error::ErrorInternalServerError("Failed to sign JWT"),
+    // };
+    let jwt = sign_jwt(&auth_response.user, app_config.get_ref().clone())
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
-//         match req.headers().get("Authorization") {
-//             Some(header_value) => {
-//                 if let Ok(token) = header_value.to_str() {
-//                     let token_data = decode::<Claims>(
-//                         &token.replace("Bearer ", ""), // Remove Bearer prefix
-//                         &decoding_key,
-//                         &Validation::default(),
-//                     );
-//                     match token_data {
-//                         Ok(data) => ready(Ok(data.claims)),
-//                         Err(_err) => {
-//                             ready(Err(actix_web::error::ErrorUnauthorized("Invalid token")))
-//                         }
-//                     }
-//                 } else {
-//                     ready(Err(actix_web::error::ErrorUnauthorized("Bad token")))
-//                 }
-//             }
-//             None => ready(Err(actix_web::error::ErrorUnauthorized("Missing token"))),
-//         }
-//     }
-// }
-// use actix_service::{Service, Transform};
-// use actix_web::dev::{ServiceRequest, ServiceResponse};
-// use futures::future::ok;
-// use std::rc::Rc;
-// use std::task::{Context, Poll};
+    // Redirect to the invisibility deep link with the JWT
+    let redirect_url = format!("invisibility://auth_callback?token={}", jwt);
+    // let redirect_url = "https://google.com";
+    info!("Redirecting to: {}", redirect_url);
+    Ok(web::Redirect::to(redirect_url))
+}
 
-// pub struct AuthMiddleware {
-//     pub config: Rc<AppConfig>,
-// }
+async fn exchange_code_for_user(
+    code: &str,
+    app_config: AppConfig,
+) -> Result<WorkOSAuthResponse, Box<dyn std::error::Error>> {
+    // Use a more generic error type to allow for different kinds of errors
+    let client = Client::new();
+    let response = client
+        .post("https://api.workos.com/user_management/authenticate")
+        .header(
+            "Authorization",
+            format!("Bearer {}", app_config.workos_api_key),
+        )
+        .json(&WorkOSAuthRequest {
+            client_id: app_config.workos_client_id.clone(),
+            client_secret: app_config.workos_api_key.clone(),
+            grant_type: "authorization_code".to_owned(),
+            code: code.to_owned(),
+            ip_address: None,
+            user_agent: None,
+            invitation_code: None,
+        })
+        .send()
+        .await;
 
-// // Middleware factory is `Transform` trait from actix-service crate
-// // S is the type of the next service
-// // B is the type of response's body
-// impl<S, B> Transform<S> for AuthMiddleware
-// where
-//     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-//     S::Future: 'static,
-//     B: 'static,
-// {
-//     type Request = ServiceRequest;
-//     type Response = ServiceResponse<B>;
-//     type Error = Error;
-//     type InitError = ();
-//     type Transform = AuthMiddlewareService<S>;
-//     type Future = Ready<Result<Self::Transform, Self::InitError>>;
+    match response {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                let auth_response = resp.json::<WorkOSAuthResponse>().await?;
+                Ok(auth_response)
+            } else {
+                // Attempt to read the response body for error details
+                let error_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to read response body".to_string());
+                error!("Error response from WorkOS: {}", error_body);
+                Err("Failed to authenticate user with WorkOS".into())
+            }
+        }
+        Err(e) => {
+            error!("HTTP request error: {}", e);
+            Err(e.into())
+        }
+    }
+}
 
-//     fn new_transform(&self, service: S) -> Self::Future {
-//         ok(AuthMiddlewareService {
-//             config: self.config.clone(),
-//             service: Rc::new(service),
-//         })
-//     }
-// }
+fn sign_jwt(
+    user_info: &WorkOSUser,
+    app_config: AppConfig,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let claims = Claims {
+        sub: user_info.id.clone(),
+        exp: 100000, // Make sure to replace this with an actual expiration
+    };
 
-// pub struct AuthMiddlewareService<S> {
-//     config: Rc<AppConfig>,
-//     service: Rc<S>,
-// }
-
-// impl<S, B> Service for AuthMiddlewareService<S>
-// where
-//     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
-//     S::Future: 'static,
-//     B: 'static,
-// {
-//     type Request = ServiceRequest;
-//     type Response = ServiceResponse<B>;
-//     type Error = Error;
-//     type Future = futures::future::LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
-
-//     fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-//         self.service.poll_ready(ctx)
-//     }
-
-//     fn call(&self, req: ServiceRequest) -> Self::Future {
-//         // Here you would extract the Authorization header, decode the JWT,
-//         // and validate it using your `self.config.jwt_decoding_key`
-//         // For now, let's just forward all requests without doing anything
-
-//         let fut = self.service.call(req);
-//         Box::pin(async move {
-//             let res = fut.await?;
-//             Ok(res)
-//         })
-//     }
-// }
+    encode(&Header::default(), &claims, &app_config.jwt_keys.encoding)
+}

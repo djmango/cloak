@@ -17,6 +17,8 @@ async fn hello_world() -> &'static str {
 #[derive(Clone)]
 pub struct AppConfig {
     pub openai_api_key: String,
+    pub workos_api_key: String,
+    pub workos_client_id: String,
     pub jwt_keys: auth::JWTKeys,
 }
 
@@ -27,6 +29,14 @@ impl AppConfig {
             .get("OPENAI_API_KEY")
             .ok_or_else(|| anyhow!("OPENAI_API_KEY not found"))?;
 
+        let workos_api_key = secret_store
+            .get("WORKOS_API_KEY")
+            .ok_or_else(|| anyhow!("WORKOS_API_KEY not found"))?;
+
+        let workos_client_id = secret_store
+            .get("WORKOS_CLIENT_ID")
+            .ok_or_else(|| anyhow!("WORKOS_CLIENT_ID not found"))?;
+
         let jwt_secret = secret_store
             .get("JWT_SECRET")
             .ok_or_else(|| anyhow!("JWT_SECRET not found"))?;
@@ -35,6 +45,8 @@ impl AppConfig {
 
         Ok(AppConfig {
             openai_api_key,
+            workos_api_key,
+            workos_client_id,
             jwt_keys,
         })
     }
@@ -52,7 +64,7 @@ async fn main(
     color_eyre::install().unwrap();
 
     let app_config = AppConfig::new(&secret_store).unwrap();
-    let state = AppState {
+    let app_state = AppState {
         oai_client: Client::with_config(
             OpenAIConfig::new().with_api_key(app_config.openai_api_key.clone()),
         ),
@@ -63,6 +75,7 @@ async fn main(
             web::scope("")
                 .service(hello_world)
                 .service(web::scope("/oai").service(oai::chat))
+                .service(web::scope("/auth").service(auth::auth_callback))
                 .wrap(Logger::new(
                     "%t %{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T",
                 ))
@@ -74,7 +87,7 @@ async fn main(
                 // • %{Referer}i: The value of the Referer header
                 // • %User-Agent}i: The value of the User-Agent header
                 // • %T: Time taken to serve the request, in seconds
-                .app_data(web::Data::new(state.clone()))
+                .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(app_config.clone())),
         );
     };
