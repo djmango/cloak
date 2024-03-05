@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use actix_web::{get, web, Error, HttpMessage, HttpRequest, Responder};
+use actix_web::{
+    get,
+    web::{self, Json},
+    Error, Responder,
+};
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
@@ -79,14 +83,55 @@ async fn auth_callback(
 }
 
 #[get("/user")]
-async fn get_user(req: HttpRequest) -> Result<impl Responder, Error> {
-    if let Some(AuthenticatedUser { user_id }) = req.extensions().get::<AuthenticatedUser>() {
-        // Now you know `user_id` is present and is a String
-        Ok(format!("User ID: {}", user_id))
-    } else {
-        Err(actix_web::error::ErrorUnauthorized(
-            "User not authenticated",
+async fn get_user(
+    authenticated_user: AuthenticatedUser,
+    app_config: web::Data<Arc<AppConfig>>,
+) -> Result<Json<WorkOSUser>, Error> {
+    let user_id = authenticated_user.user_id.as_ref();
+    let workos_user = user_id_to_user(user_id, app_config.get_ref().clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()));
+
+    // Since there's no conditional checking of `AuthenticatedUser`, you directly work with it
+    Ok(web::Json(workos_user?))
+}
+
+async fn user_id_to_user(
+    user_id: &str,
+    app_config: Arc<AppConfig>,
+) -> Result<WorkOSUser, Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let response = client
+        .get(format!(
+            "https://api.workos.com/user_management/users/{}",
+            user_id
         ))
+        .header(
+            "Authorization",
+            format!("Bearer {}", app_config.workos_api_key),
+        )
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                let user = resp.json::<WorkOSUser>().await?;
+                Ok(user)
+            } else {
+                // Attempt to read the response body for error details
+                let error_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to read response body".to_string());
+                error!("Error response from WorkOS: {}", error_body);
+                Err("Failed to fetch user from WorkOS".into())
+            }
+        }
+        Err(e) => {
+            error!("HTTP request error: {}", e);
+            Err(e.into())
+        }
     }
 }
 
