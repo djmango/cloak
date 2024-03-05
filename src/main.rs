@@ -4,10 +4,10 @@ use anyhow::anyhow;
 use async_openai::{config::OpenAIConfig, Client};
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_secrets::SecretStore;
+use std::sync::Arc;
 
-mod auth;
 mod middleware;
-mod oai;
+mod routes;
 
 #[get("/")]
 async fn hello_world() -> &'static str {
@@ -19,7 +19,7 @@ pub struct AppConfig {
     pub openai_api_key: String,
     pub workos_api_key: String,
     pub workos_client_id: String,
-    pub jwt_keys: auth::JWTKeys,
+    pub jwt_secret: String,
 }
 
 impl AppConfig {
@@ -41,13 +41,11 @@ impl AppConfig {
             .get("JWT_SECRET")
             .ok_or_else(|| anyhow!("JWT_SECRET not found"))?;
 
-        let jwt_keys = auth::JWTKeys::new(jwt_secret.as_bytes());
-
         Ok(AppConfig {
             openai_api_key,
             workos_api_key,
             workos_client_id,
-            jwt_keys,
+            jwt_secret,
         })
     }
 }
@@ -63,7 +61,7 @@ async fn main(
 ) -> ShuttleActixWeb<impl FnOnce(&mut web::ServiceConfig) + Send + Clone + 'static> {
     color_eyre::install().unwrap();
 
-    let app_config = AppConfig::new(&secret_store).unwrap();
+    let app_config = Arc::new(AppConfig::new(&secret_store).unwrap());
     let app_state = AppState {
         oai_client: Client::with_config(
             OpenAIConfig::new().with_api_key(app_config.openai_api_key.clone()),
@@ -74,8 +72,15 @@ async fn main(
         cfg.service(
             web::scope("")
                 .service(hello_world)
-                .service(web::scope("/oai").service(oai::chat))
-                .service(web::scope("/auth").service(auth::auth_callback))
+                .service(web::scope("/oai").service(routes::oai::chat))
+                .service(
+                    web::scope("/auth")
+                        .service(routes::auth::auth_callback)
+                        .service(routes::auth::get_user),
+                )
+                .wrap(middleware::auth::Authentication {
+                    app_config: app_config.clone(),
+                })
                 .wrap(Logger::new(
                     "%t %{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T",
                 ))

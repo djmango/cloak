@@ -1,26 +1,13 @@
-use actix_web::{get, web, Responder};
+use std::sync::Arc;
+
+use actix_web::{get, web, Error, HttpMessage, HttpRequest, Responder};
 use chrono::{DateTime, Utc};
-use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header};
+use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use crate::AppConfig;
-
-#[derive(Clone)]
-pub struct JWTKeys {
-    encoding: EncodingKey,
-    decoding: DecodingKey,
-}
-
-impl JWTKeys {
-    pub fn new(secret: &[u8]) -> Self {
-        Self {
-            encoding: EncodingKey::from_secret(secret),
-            decoding: DecodingKey::from_secret(secret),
-        }
-    }
-}
+use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 
 #[derive(Deserialize)]
 struct AuthCallbackQuery {
@@ -57,6 +44,7 @@ struct WorkOSAuthRequest {
 
 // For the response
 #[derive(Deserialize)]
+#[allow(dead_code)] // We never really use organization_id but whatever
 struct WorkOSAuthResponse {
     user: WorkOSUser,
     organization_id: Option<String>,
@@ -64,48 +52,47 @@ struct WorkOSAuthResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    sub: String,
-    exp: usize,
+    pub sub: String,
+    pub exp: usize,
+    pub iat: usize,
 }
 
-// /workos/callback?code=01HR5WZ128D1Z7P95BDBT0
 #[get("/workos/callback")]
 async fn auth_callback(
-    app_config: web::Data<AppConfig>,
+    app_config: web::Data<Arc<AppConfig>>,
     info: web::Query<AuthCallbackQuery>,
 ) -> Result<impl Responder, actix_web::Error> {
     let code = &info.code;
     // Exchange the code for user information using the WorkOS API
-    // let auth_response = match exchange_code_for_user(code, app_config.get_ref().clone()).await {
-    //     Ok(info) => info,
-    //     Err(_) => {
-    //         // return actix_web::error::ErrorInternalServerError("Failed to exchange code for user")
-    //         // .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
-    //     }
-    // };
-    //
     let auth_response = exchange_code_for_user(code, app_config.get_ref().clone())
         .await
         .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
     // Sign a JWT with the user info
-    // let jwt = match sign_jwt(&auth_response.user, app_config.get_ref().clone()) {
-    //     Ok(token) => token,
-    //     Err(_) => return actix_web::error::ErrorInternalServerError("Failed to sign JWT"),
-    // };
     let jwt = sign_jwt(&auth_response.user, app_config.get_ref().clone())
         .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
     // Redirect to the invisibility deep link with the JWT
     let redirect_url = format!("invisibility://auth_callback?token={}", jwt);
-    // let redirect_url = "https://google.com";
     info!("Redirecting to: {}", redirect_url);
     Ok(web::Redirect::to(redirect_url))
 }
 
+#[get("/user")]
+async fn get_user(req: HttpRequest) -> Result<impl Responder, Error> {
+    if let Some(AuthenticatedUser { user_id }) = req.extensions().get::<AuthenticatedUser>() {
+        // Now you know `user_id` is present and is a String
+        Ok(format!("User ID: {}", user_id))
+    } else {
+        Err(actix_web::error::ErrorUnauthorized(
+            "User not authenticated",
+        ))
+    }
+}
+
 async fn exchange_code_for_user(
     code: &str,
-    app_config: AppConfig,
+    app_config: Arc<AppConfig>,
 ) -> Result<WorkOSAuthResponse, Box<dyn std::error::Error>> {
     // Use a more generic error type to allow for different kinds of errors
     let client = Client::new();
@@ -151,12 +138,18 @@ async fn exchange_code_for_user(
 
 fn sign_jwt(
     user_info: &WorkOSUser,
-    app_config: AppConfig,
+    app_config: Arc<AppConfig>,
 ) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = Utc::now().timestamp() as usize;
     let claims = Claims {
         sub: user_info.id.clone(),
-        exp: 100000, // Make sure to replace this with an actual expiration
+        exp: now + 3600 * 24 * 7, // Token expires after 1 week
+        iat: now,
     };
 
-    encode(&Header::default(), &claims, &app_config.jwt_keys.encoding)
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(app_config.jwt_secret.as_ref()),
+    )
 }
