@@ -17,9 +17,13 @@ async fn hello_world() -> &'static str {
 #[derive(Clone)]
 pub struct AppConfig {
     pub openai_api_key: String,
+    pub openrouter_api_key: String,
     pub workos_api_key: String,
     pub workos_client_id: String,
     pub jwt_secret: String,
+    pub aws_region: String,
+    pub aws_access_key_id: String,
+    pub aws_secret_access_key: String,
 }
 
 impl AppConfig {
@@ -28,6 +32,10 @@ impl AppConfig {
         let openai_api_key = secret_store
             .get("OPENAI_API_KEY")
             .ok_or_else(|| anyhow!("OPENAI_API_KEY not found"))?;
+
+        let openrouter_api_key = secret_store
+            .get("OPENROUTER_API_KEY")
+            .ok_or_else(|| anyhow!("OPENROUTER_API_KEY not found"))?;
 
         let workos_api_key = secret_store
             .get("WORKOS_API_KEY")
@@ -41,18 +49,49 @@ impl AppConfig {
             .get("JWT_SECRET")
             .ok_or_else(|| anyhow!("JWT_SECRET not found"))?;
 
+        let aws_region = secret_store
+            .get("AWS_REGION")
+            .ok_or_else(|| anyhow!("AWS_REGION not found"))?;
+
+        let aws_access_key_id = secret_store
+            .get("AWS_ACCESS_KEY_ID")
+            .ok_or_else(|| anyhow!("AWS_ACCESS_KEY_ID not found"))?;
+
+        let aws_secret_access_key = secret_store
+            .get("AWS_SECRET_ACCESS_KEY")
+            .ok_or_else(|| anyhow!("AWS_SECRET_ACCESS_KEY not found"))?;
+
         Ok(AppConfig {
             openai_api_key,
+            openrouter_api_key,
             workos_api_key,
             workos_client_id,
             jwt_secret,
+            aws_region,
+            aws_access_key_id,
+            aws_secret_access_key,
         })
     }
+}
+
+async fn get_bedrock_client(app_config: &AppConfig) -> aws_sdk_bedrockruntime::Client {
+    // Set env
+    std::env::set_var("AWS_ACCESS_KEY_ID", app_config.aws_access_key_id.clone());
+    std::env::set_var(
+        "AWS_SECRET_ACCESS_KEY",
+        app_config.aws_secret_access_key.clone(),
+    );
+    std::env::set_var("AWS_REGION", app_config.aws_region.clone());
+
+    let aws_sdk_config = aws_config::load_from_env().await;
+    aws_sdk_bedrockruntime::Client::new(&aws_sdk_config)
 }
 
 #[derive(Clone)]
 struct AppState {
     oai_client: Client<OpenAIConfig>,
+    openrouter_client: Client<OpenAIConfig>,
+    bedrock_client: aws_sdk_bedrockruntime::Client,
 }
 
 #[shuttle_runtime::main]
@@ -66,6 +105,12 @@ async fn main(
         oai_client: Client::with_config(
             OpenAIConfig::new().with_api_key(app_config.openai_api_key.clone()),
         ),
+        openrouter_client: Client::with_config(
+            OpenAIConfig::new()
+                .with_api_key(app_config.openrouter_api_key.clone())
+                .with_api_base("https://openrouter.ai/api/v1"),
+        ),
+        bedrock_client: get_bedrock_client(&app_config).await,
     };
 
     let config = move |cfg: &mut web::ServiceConfig| {
