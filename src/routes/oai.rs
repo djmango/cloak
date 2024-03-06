@@ -25,7 +25,6 @@ async fn chat(
 ) -> Result<impl Responder, actix_web::Error> {
     let user_id = &authenticated_user.user_id;
 
-    // info!("AI endpoint hit with model: {}", req_body.model);
     info!(
         "User {} hit the AI endpoint with model: {}",
         user_id, req_body.model
@@ -34,11 +33,6 @@ async fn chat(
     let mut request_args = req_body.into_inner();
 
     request_args.stream = Some(true);
-    // request_args.model = "openrouter/auto".to_string();
-    // request_args.model can either be "invis/claude3_auto" or anything else, which will route to
-    // the standard openai model
-
-    // let stream: futures::stream::BoxStream<Result<Bytes, Error>>;
 
     // match request_args.model.as_str() {
     //     "invis/claude3_auto" => {
@@ -116,12 +110,6 @@ async fn chat(
         _ => app_state.oai_client.clone(),
     };
 
-    // let response = app_state
-    //     .oai_client
-    //     .chat()
-    //     .create_stream(request_args)
-    //     .await
-    //     .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
     let response = client
         .chat()
         .create_stream(request_args)

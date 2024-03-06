@@ -188,7 +188,7 @@ fn sign_jwt(
     let now = Utc::now().timestamp() as usize;
     let claims = Claims {
         sub: user_info.id.clone(),
-        exp: now + 3600 * 24 * 7, // Token expires after 1 week
+        exp: now + 3600 * 24 * 7 * 5, // Token expires after 5 weeks
         iat: now,
     };
 
