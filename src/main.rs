@@ -81,18 +81,18 @@ impl AppConfig {
     }
 }
 
-async fn get_bedrock_client(app_config: &AppConfig) -> aws_sdk_bedrockruntime::Client {
-    // Set env
-    std::env::set_var("AWS_ACCESS_KEY_ID", app_config.aws_access_key_id.clone());
-    std::env::set_var(
-        "AWS_SECRET_ACCESS_KEY",
-        app_config.aws_secret_access_key.clone(),
-    );
-    std::env::set_var("AWS_REGION", app_config.aws_region.clone());
+// async fn get_bedrock_client(app_config: &AppConfig) -> aws_sdk_bedrockruntime::Client {
+//     // Set env
+//     std::env::set_var("AWS_ACCESS_KEY_ID", app_config.aws_access_key_id.clone());
+//     std::env::set_var(
+//         "AWS_SECRET_ACCESS_KEY",
+//         app_config.aws_secret_access_key.clone(),
+//     );
+//     std::env::set_var("AWS_REGION", app_config.aws_region.clone());
 
-    let aws_sdk_config = aws_config::load_from_env().await;
-    aws_sdk_bedrockruntime::Client::new(&aws_sdk_config)
-}
+//     let aws_sdk_config = aws_config::load_from_env().await;
+//     aws_sdk_bedrockruntime::Client::new(&aws_sdk_config)
+// }
 
 #[derive(Clone)]
 struct AppState {
@@ -134,6 +134,11 @@ async fn main(
                     web::scope("/auth")
                         .service(routes::auth::auth_callback)
                         .service(routes::auth::get_user),
+                )
+                .service(
+                    web::scope("/pay")
+                        .service(routes::pay::invite)
+                        .service(routes::pay::checkout),
                 )
                 .wrap(middleware::auth::Authentication {
                     app_config: app_config.clone(),
