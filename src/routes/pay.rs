@@ -133,7 +133,7 @@ async fn checkout(
                 discounts: discounts.into(),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
-                success_url: "https://invisibility.so/".into(),
+                success_url: "invisibility://paid".into(),
                 ..Default::default()
             }
         }
@@ -144,7 +144,7 @@ async fn checkout(
                 customer_email: checkout_request.email.as_str().into(),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
-                success_url: "https://invisibility.so/".into(),
+                success_url: "invisibility://paid".into(),
                 ..Default::default()
             }
         }
