@@ -140,7 +140,8 @@ async fn main(
                     web::scope("/pay")
                         .service(routes::pay::invite)
                         .service(routes::pay::checkout)
-                        .service(routes::pay::paid),
+                        .service(routes::pay::paid)
+                        .service(routes::pay::payment_success),
                 )
                 .wrap(middleware::auth::Authentication {
                     app_config: app_config.clone(),

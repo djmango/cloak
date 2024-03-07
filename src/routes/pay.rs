@@ -49,6 +49,11 @@ async fn invite(
     }
 }
 
+#[get("/payment_success")]
+async fn payment_success() -> Result<impl Responder, actix_web::Error> {
+    Ok(web::Redirect::to("invisibility://paid"))
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct CheckoutRequest {
     email: String,
@@ -133,7 +138,7 @@ async fn checkout(
                 discounts: discounts.into(),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
-                success_url: "invisibility://paid".into(),
+                success_url: "https://cloak.invisibility.so/pay/payment_success".into(),
                 ..Default::default()
             }
         }
@@ -144,7 +149,7 @@ async fn checkout(
                 customer_email: checkout_request.email.as_str().into(),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
-                success_url: "invisibility://paid".into(),
+                success_url: "https://cloak.invisibility.so/pay/payment_success".into(),
                 ..Default::default()
             }
         }
