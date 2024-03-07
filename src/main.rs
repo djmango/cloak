@@ -132,13 +132,15 @@ async fn main(
                 .service(web::scope("/oai").service(routes::oai::chat))
                 .service(
                     web::scope("/auth")
+                        .service(routes::auth::login)
                         .service(routes::auth::auth_callback)
                         .service(routes::auth::get_user),
                 )
                 .service(
                     web::scope("/pay")
                         .service(routes::pay::invite)
-                        .service(routes::pay::checkout),
+                        .service(routes::pay::checkout)
+                        .service(routes::pay::paid),
                 )
                 .wrap(middleware::auth::Authentication {
                     app_config: app_config.clone(),

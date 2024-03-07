@@ -2,15 +2,18 @@ use actix_web::{get, web, Responder};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use stripe::generated::checkout::checkout_session;
 use stripe::{
     CheckoutSessionMode, CreateCheckoutSession, CreateCheckoutSessionDiscounts,
-    CreateCheckoutSessionLineItems, ListPromotionCodes,
+    CreateCheckoutSessionLineItems, CustomerSearchParams, ListPromotionCodes, ListSubscriptions,
+    SubscriptionStatusFilter,
 };
 use tracing::{error, info, warn};
 
 use crate::middleware::auth::AuthenticatedUser;
-use crate::AppState;
+use crate::routes::auth::user_id_to_user;
+use crate::{AppConfig, AppState};
 
 #[derive(Serialize, Deserialize, Clone)]
 struct UserInvite {
@@ -156,14 +159,78 @@ async fn checkout(
     match checkout {
         Ok(checkout) => {
             // Redirect to the checkout URL
-            info!(
-                "Created checkout session: {:?} for email: {}",
-                checkout, checkout_request.email
-            );
+            info!("Created checkout session for: {}", checkout_request.email);
             Ok(web::Redirect::to(checkout.url.unwrap()))
         }
         Err(e) => {
             error!("Failed to create checkout session: {:?}", e);
+            Err(actix_web::error::ErrorInternalServerError(e.to_string()))
+        }
+    }
+}
+
+#[get("/paid")]
+async fn paid(
+    app_state: web::Data<AppState>,
+    app_config: web::Data<Arc<AppConfig>>,
+    authenticated_user: AuthenticatedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let user = user_id_to_user(&authenticated_user.user_id, app_config.get_ref().clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorForbidden(e.to_string()))?;
+
+    info!("Paid request for email: {}", user.email);
+
+    // Search for the customer by email using the Stripe API
+    let customers = stripe::Customer::search(
+        &app_state.stripe_client,
+        CustomerSearchParams {
+            query: format!("email:'{}'", user.email),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    match customers {
+        Ok(customers) => {
+            if let Some(customer) = customers.data.first() {
+                info!("Customer found: {:?}", customer);
+
+                // Retrieve the customer's subscriptions
+                let subscriptions = stripe::Subscription::list(
+                    &app_state.stripe_client,
+                    &ListSubscriptions {
+                        customer: Some(customer.id.clone()),
+                        status: Some(SubscriptionStatusFilter::Active),
+                        ..Default::default()
+                    },
+                )
+                .await;
+
+                match subscriptions {
+                    Ok(subscriptions) => {
+                        if !subscriptions.data.is_empty() {
+                            info!("Active subscription found for customer: {:?}", customer);
+                            Ok("You have an active subscription")
+                        } else {
+                            warn!("No active subscription found for customer: {:?}", customer);
+                            Err(actix_web::error::ErrorPaymentRequired(
+                                "No active subscription found",
+                            ))
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to retrieve subscriptions: {:?}", e);
+                        Err(actix_web::error::ErrorInternalServerError(e.to_string()))
+                    }
+                }
+            } else {
+                warn!("Customer not found for email: {}", user.email);
+                Err(actix_web::error::ErrorNotFound("Customer not found"))
+            }
+        }
+        Err(e) => {
+            error!("Failed to search for customer: {:?}", e);
             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
         }
     }
