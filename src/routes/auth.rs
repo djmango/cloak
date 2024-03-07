@@ -19,16 +19,16 @@ struct AuthCallbackQuery {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct WorkOSUser {
-    object: String,
-    id: String,
-    email: String,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    email_verified: bool,
-    profile_picture_url: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+pub struct WorkOSUser {
+    pub object: String,
+    pub id: String,
+    pub email: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub email_verified: bool,
+    pub profile_picture_url: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 // For the request payload
@@ -59,6 +59,12 @@ pub struct Claims {
     pub sub: String,
     pub exp: usize,
     pub iat: usize,
+}
+
+#[get("/workos/login")]
+async fn login() -> Result<impl Responder, Error> {
+    let url = "https://authkit.invisibility.so/";
+    Ok(web::Redirect::to(url))
 }
 
 #[get("/workos/callback")]
@@ -96,7 +102,7 @@ async fn get_user(
     Ok(web::Json(workos_user?))
 }
 
-async fn user_id_to_user(
+pub async fn user_id_to_user(
     user_id: &str,
     app_config: Arc<AppConfig>,
 ) -> Result<WorkOSUser, Box<dyn std::error::Error>> {
