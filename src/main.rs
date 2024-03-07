@@ -3,6 +3,7 @@ use actix_web::{get, web};
 use anyhow::anyhow;
 use async_openai::{config::OpenAIConfig, Client};
 use shuttle_actix_web::ShuttleActixWeb;
+use shuttle_persist::PersistInstance;
 use shuttle_secrets::SecretStore;
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ pub struct AppConfig {
     pub aws_region: String,
     pub aws_access_key_id: String,
     pub aws_secret_access_key: String,
+    pub stripe_secret_key: String,
 }
 
 impl AppConfig {
@@ -61,6 +63,10 @@ impl AppConfig {
             .get("AWS_SECRET_ACCESS_KEY")
             .ok_or_else(|| anyhow!("AWS_SECRET_ACCESS_KEY not found"))?;
 
+        let stripe_secret_key = secret_store
+            .get("STRIPE_SECRET_KEY")
+            .ok_or_else(|| anyhow!("STRIPE_SECRET_KEY not found"))?;
+
         Ok(AppConfig {
             openai_api_key,
             openrouter_api_key,
@@ -70,6 +76,7 @@ impl AppConfig {
             aws_region,
             aws_access_key_id,
             aws_secret_access_key,
+            stripe_secret_key,
         })
     }
 }
@@ -89,19 +96,23 @@ async fn get_bedrock_client(app_config: &AppConfig) -> aws_sdk_bedrockruntime::C
 
 #[derive(Clone)]
 struct AppState {
+    persist: PersistInstance,
     oai_client: Client<OpenAIConfig>,
     openrouter_client: Client<OpenAIConfig>,
-    bedrock_client: aws_sdk_bedrockruntime::Client,
+    // bedrock_client: aws_sdk_bedrockruntime::Client,
+    stripe_client: stripe::Client,
 }
 
 #[shuttle_runtime::main]
 async fn main(
     #[shuttle_secrets::Secrets] secret_store: SecretStore,
+    #[shuttle_persist::Persist] persist: PersistInstance,
 ) -> ShuttleActixWeb<impl FnOnce(&mut web::ServiceConfig) + Send + Clone + 'static> {
     color_eyre::install().unwrap();
 
     let app_config = Arc::new(AppConfig::new(&secret_store).unwrap());
     let app_state = AppState {
+        persist,
         oai_client: Client::with_config(
             OpenAIConfig::new().with_api_key(app_config.openai_api_key.clone()),
         ),
@@ -110,7 +121,8 @@ async fn main(
                 .with_api_key(app_config.openrouter_api_key.clone())
                 .with_api_base("https://openrouter.ai/api/v1"),
         ),
-        bedrock_client: get_bedrock_client(&app_config).await,
+        // bedrock_client: get_bedrock_client(&app_config).await,
+        stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     };
 
     let config = move |cfg: &mut web::ServiceConfig| {
@@ -129,7 +141,6 @@ async fn main(
                 .wrap(Logger::new(
                     "%t %{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T",
                 ))
-                // This pattern breaks down as follows:
                 // • %t: Timestamp
                 // • %r: First line of the request (method and path)
                 // • %s: Response status code
