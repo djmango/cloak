@@ -32,83 +32,29 @@ async fn chat(
 
     let mut request_args = req_body.into_inner();
 
+    // For now, we only support streaming completions
     request_args.stream = Some(true);
-
-    // match request_args.model.as_str() {
-    //     "invis/claude3_auto" => {
-    //         let model_id = "anthropic.claude-3-sonnet-20240229-v1:0";
-    //         let body = r#"{
-    //   "anthropic_version": "bedrock-2023-05-31",
-    //   "max_tokens": 1000,
-    //   "messages": [
-    //     {
-    //       "role": "user",
-    //       "content": [
-    //         {
-    //           "type": "text",
-    //           "text": "What's in this image?"
-    //         }
-    //       ]
-    //     }
-    //   ]
-    // }"#;
-
-    //         let body_blob = Blob::new(body);
-
-    //         let response = app_state
-    //             .bedrock_client
-    //             .invoke_model_with_response_stream()
-    //             .body(body_blob)
-    //             .model_id(model_id)
-    //             .content_type("application/json")
-    //             .send()
-    //             .await;
-    //
-    //         response
-
-    //         stream = response
-    //             .map(
-    //                 |item_result: Result<
-    //                     InvokeModelWithResponseStreamOutput,
-    //                     SdkError<InvokeModelWithResponseStreamError, Response>,
-    //                 >| {
-    //                     match item_result {
-    //                         Ok(item) => to_string(&item)
-    //                             .map_err(actix_web::error::ErrorInternalServerError)
-    //                             .map(|json_string| {
-    //                                 Bytes::from(format!("data: {}\n\n", json_string))
-    //                             }),
-    //                         Err(e) => {
-    //                             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
-    //                         }
-    //                     }
-    //                 },
-    //             )
-    //             .boxed();
-
-    // match res {
-    //     Ok(res) => {
-    //         info!("Response: {:?}", res);
-    //         // info!("Response body: {:?}", res.body.into_inner().as_string());
-    //         info!(
-    //             "Response body: {:?}",
-    //             String::from_utf8_lossy(res.body.into_inner().as_ref())
-    //         );
-    //     }
-    //     Err(e) => {
-    //         error!("Error: {:?}", e);
-    //     }
-    // }
-    // }
-    // _ => {
-    //     }
-    // }
 
     // If we want to use claude, use the openrouter client, otherwise use the standard openai client
     let client: Client<OpenAIConfig> = match request_args.model.as_str() {
         "anthropic/claude-3-opus:beta" => app_state.openrouter_client.clone(),
         _ => app_state.oai_client.clone(),
     };
+
+    // Ensure we have at least one message, else return an error
+    if request_args.messages.is_empty() {
+        return Err(actix_web::error::ErrorBadRequest(
+            "At least one message is required",
+        ));
+    }
+
+    // Truncate messages
+    // Include the last 5
+    if request_args.messages.len() > 5 {
+        request_args.messages = request_args
+            .messages
+            .split_off(request_args.messages.len() - 5);
+    }
 
     let response = client
         .chat()
@@ -128,26 +74,6 @@ async fn chat(
             },
         )
         .boxed();
-
-    // let stream: futures::stream::BoxStream<Result<Bytes, Error>> = response
-    //     .map(
-    //         |item_result: Result<CreateChatCompletionStreamResponse, OpenAIError>| match item_result
-    //         {
-    //             Ok(item) => to_string(&item)
-    //                 .map_err(actix_web::error::ErrorInternalServerError)
-    //                 .map(|json_string| {
-    //                     let loggable_value = format!("data: {}\n\n", json_string);
-    //                     info!(
-    //                         "Transmitting: {}",
-    //                         loggable_value.strip_suffix("\n\n").unwrap()
-    //                     );
-
-    //                     Bytes::from(loggable_value)
-    //                 }),
-    //             Err(e) => Err(actix_web::error::ErrorInternalServerError(e.to_string())),
-    //         },
-    //     )
-    //     .boxed();
 
     Ok(HttpResponse::Ok()
         .content_type("application/stream+json")
