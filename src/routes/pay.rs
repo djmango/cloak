@@ -41,7 +41,10 @@ async fn invite(
         .map_err(|e| anyhow!("Failed to store user invite: {:?}", e));
 
     match result {
-        Ok(_) => Ok("User invite stored successfully"),
+        Ok(_) => {
+            info!("User invite stored successfully: {:?}", user_invite.email);
+            Ok(web::Redirect::to("https://github.com/InvisibilityInc/Invisibility/releases/download/2.0.0/Invisibility.Installer.2.0.0.dmg"))
+        }
         Err(e) => {
             error!("Failed to store user invite: {:?}", e);
             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
