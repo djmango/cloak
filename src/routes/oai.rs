@@ -12,6 +12,7 @@ use async_openai::Client;
 use bytes::Bytes;
 use futures::stream::StreamExt;
 use serde_json::to_string;
+use std::sync::Arc;
 use tracing::info;
 
 use crate::middleware::auth::AuthenticatedUser;
@@ -19,7 +20,7 @@ use crate::AppState;
 
 #[post("/v1/chat/completions")]
 async fn chat(
-    app_state: web::Data<AppState>,
+    app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {

@@ -18,7 +18,7 @@ struct AuthCallbackQuery {
     code: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkOSUser {
     pub object: String,
     pub id: String,
@@ -124,6 +124,57 @@ pub async fn user_id_to_user(
             if resp.status().is_success() {
                 let user = resp.json::<WorkOSUser>().await?;
                 Ok(user)
+            } else {
+                // Attempt to read the response body for error details
+                let error_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to read response body".to_string());
+                error!("Error response from WorkOS: {}", error_body);
+                Err("Failed to fetch user from WorkOS".into())
+            }
+        }
+        Err(e) => {
+            error!("HTTP request error: {}", e);
+            Err(e.into())
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ListMetadata {
+    before: Option<String>,
+    after: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GetUserResponse {
+    data: Vec<WorkOSUser>,
+    list_metadata: ListMetadata,
+}
+
+pub async fn user_email_to_user(
+    user_email: &str,
+    app_config: Arc<AppConfig>,
+) -> Result<WorkOSUser, Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let response = client
+        .get(format!(
+            "https://api.workos.com/user_management/users/?email={}",
+            user_email
+        ))
+        .header(
+            "Authorization",
+            format!("Bearer {}", app_config.workos_api_key),
+        )
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                let user = resp.json::<GetUserResponse>().await?;
+                Ok(user.data[0].clone())
             } else {
                 // Attempt to read the response body for error details
                 let error_body = resp

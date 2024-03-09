@@ -1,19 +1,22 @@
+use actix_web::web::Json;
 use actix_web::{get, web, Responder};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-// use convert_case::{Case, Casing};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use stripe::generated::checkout::checkout_session;
 use stripe::{
-    CheckoutSessionMode, CreateCheckoutSession, CreateCheckoutSessionDiscounts,
-    CreateCheckoutSessionLineItems, CustomerSearchParams, ListPromotionCodes, ListSubscriptions,
-    SubscriptionStatusFilter,
+    BillingPortalSession, CheckoutSession, CheckoutSessionId, CheckoutSessionMode,
+    CreateBillingPortalSession, CreateCheckoutSession, CreateCheckoutSessionLineItems, Customer,
+    CustomerSearchParams, ListSubscriptions, UpdateCustomer,
 };
 use tracing::{error, info, warn};
+use url::Url;
 
 use crate::middleware::auth::AuthenticatedUser;
-use crate::routes::auth::user_id_to_user;
+use crate::routes::auth::{user_email_to_user, user_id_to_user};
 use crate::{AppConfig, AppState};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -26,20 +29,11 @@ struct UserInvite {
 
 #[get("/invite")]
 async fn invite(
-    app_state: web::Data<AppState>,
+    app_state: web::Data<Arc<AppState>>,
     query: web::Query<UserInvite>,
 ) -> Result<impl Responder, actix_web::Error> {
     let mut user_invite = query.into_inner();
     user_invite.created_at = Utc::now().into();
-
-    // Search for stripe coupons by the name
-    // let coupons = stripe::Coupon::list(
-    //     &app_state.stripe_client,
-    //     &stripe::ListCoupons {
-    //         name: Some(user_invite.code.as_str()),
-    //         ..Default::default()
-    //     },
-    // );
 
     // Store the user invite data in Shuttle Persist
     let result = app_state
@@ -62,9 +56,63 @@ async fn invite(
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct PaymentSuccessRequest {
+    session_id: String,
+    user_email: String,
+}
+
 #[get("/payment_success")]
-async fn payment_success() -> Result<impl Responder, actix_web::Error> {
-    info!("Payment success");
+async fn payment_success(
+    app_state: web::Data<Arc<AppState>>,
+    app_config: web::Data<Arc<AppConfig>>,
+    query: web::Query<PaymentSuccessRequest>,
+) -> Result<impl Responder, actix_web::Error> {
+    let session_query = query.into_inner();
+
+    let session = CheckoutSession::retrieve(
+        &app_state.stripe_client,
+        &CheckoutSessionId::from_str(&session_query.session_id).unwrap(),
+        &["customer"],
+    )
+    .await;
+
+    match session {
+        Ok(session) => {
+            info!(
+                "Checkout session retrieved for: {:?}",
+                session.customer_email
+            );
+            let workos_user =
+                user_email_to_user(&session_query.user_email, app_config.get_ref().clone())
+                    .await
+                    .map_err(|e| actix_web::error::ErrorForbidden(e.to_string()))?;
+
+            info!("Session retrieved: {:?}", session);
+
+            // Set workos_user id as metadata in stripe customer
+            let mut metadata: stripe::Metadata = HashMap::new();
+            metadata.insert("workos_user_id".to_string(), workos_user.id.to_string());
+            info!("Metadata: {:?}", metadata);
+
+            Customer::update(
+                &app_state.stripe_client,
+                &session.customer.unwrap().id(),
+                UpdateCustomer {
+                    metadata: Some(metadata),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+        }
+        Err(e) => {
+            error!("Failed to retrieve checkout session: {:?}", e);
+            return Err(actix_web::error::ErrorInternalServerError(e.to_string()));
+        }
+    };
+
+    info!("Payment success for session: {}", session_query.session_id);
     Ok(web::Redirect::to("invisibility://paid"))
 }
 
@@ -75,7 +123,7 @@ struct CheckoutRequest {
 
 #[get("/checkout")]
 async fn checkout(
-    app_state: web::Data<AppState>,
+    app_state: web::Data<Arc<AppState>>,
     query: web::Query<CheckoutRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
     info!("Checkout request");
@@ -84,97 +132,54 @@ async fn checkout(
 
     // Price is hardcoded
     let line_item = CreateCheckoutSessionLineItems {
-        price: Some("price_1OsEE2HQqwgWa5gA69vwLYuv".into()),
+        price: Some("price_1OsHQoHQqwgWa5gAAEIA1AMu".into()),
         quantity: Some(1),
         ..Default::default()
     };
 
-    // Check if a user invite exists for the email
-    let user_invite = app_state
-        .persist
-        .load::<UserInvite>(&format!("user_invite:{}", checkout_request.email));
-
     // If a user invite is found, search for the promotion code and retrieve its ID
-    let discounts: Option<Vec<CreateCheckoutSessionDiscounts>> = match user_invite {
-        Ok(user_invite) => {
-            info!(
-                "User invite found: {:?}, {:?}",
-                user_invite.email, user_invite.code
-            );
-
-            // Search for the promotion code by listing all active promotion codes
-            let promotion_codes = stripe::PromotionCode::list(
-                &app_state.stripe_client,
-                &ListPromotionCodes {
-                    code: Some(user_invite.code.as_str()),
-                    active: Some(true),
-                    ..Default::default()
-                },
-            )
-            .await;
-
-            match promotion_codes {
-                Ok(promotion_codes) => {
-                    if let Some(promotion_code) = promotion_codes.data.first() {
-                        info!("Promotion code found: {:?}", promotion_code);
-                        Some(vec![CreateCheckoutSessionDiscounts {
-                            promotion_code: Some(promotion_code.id.as_str().into()),
-                            ..Default::default()
-                        }])
-                    } else {
-                        warn!("Promotion code not found for code: {}", user_invite.code);
-                        None
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to list promotion codes: {:?}", e);
-                    None
-                }
-            }
-        }
-        _ => {
-            warn!(
-                "User invite not found for email: {}",
-                checkout_request.email
-            );
-            None
-        }
-    };
-
     let subscription_data = stripe::CreateCheckoutSessionSubscriptionData {
-        trial_period_days: Some(3),
+        trial_period_days: Some(1),
         ..Default::default()
     };
 
-    // Create the checkout session
-    // If discounts are found, apply them
-    // If no discounts are found, create a checkout session without discounts but allow promotion codes
-    let create_checkout_sesssion: CreateCheckoutSession = match discounts {
-        Some(discounts) => {
-            info!("Discounts applied: {:?}", discounts);
+    // let base = "http://localhost:8000/pay/payment_success?session_id={CHECKOUT_SESSION_ID}";
+    let base = "https//cloak.invisibility.so/pay/payment_success?session_id={CHECKOUT_SESSION_ID}";
+    let user_email = checkout_request.email.as_str();
+
+    let mut url = Url::parse(base).expect("Base URL should be valid");
+    url.query_pairs_mut().append_pair("user_email", user_email);
+
+    let success_url = url.to_string();
+
+    // Grab existing users in stripe with the same email, handle gracefully
+    let customer =
+        get_stripe_user_by_email(app_state.clone(), checkout_request.email.clone()).await;
+
+    // Create the checkout session, taking into account whether the customer already exists
+    let create_checkout_sesssion: CreateCheckoutSession = match customer {
+        Ok(customer) => {
+            info!("Existing customer found: {:?}", customer.email);
+
             CreateCheckoutSession {
-                customer_email: checkout_request.email.as_str().into(),
-                discounts: discounts.into(),
+                customer: Some(customer.id.clone()),
+                allow_promotion_codes: Some(true),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
-                success_url: "https://cloak.invisibility.so/pay/payment_success".into(),
+                success_url: Some(&success_url),
                 ..Default::default()
             }
         }
-        None => {
-            info!("No discounts applied, applying default invite discount");
-            let discount = CreateCheckoutSessionDiscounts {
-                coupon: Some("i1AqMsa7".into()),
-                ..Default::default()
-            };
+        Err(e) => {
+            info!("Did not find existing customer: {:?}", e);
             CreateCheckoutSession {
                 customer_email: checkout_request.email.as_str().into(),
-                discounts: vec![discount].into(),
+                allow_promotion_codes: Some(true),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
-                success_url: "https://cloak.invisibility.so/pay/payment_success".into(),
+                success_url: Some(&success_url),
                 ..Default::default()
             }
         }
@@ -201,7 +206,7 @@ async fn checkout(
 
 #[get("/paid")]
 async fn paid(
-    app_state: web::Data<AppState>,
+    app_state: web::Data<Arc<AppState>>,
     app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
 ) -> Result<impl Responder, actix_web::Error> {
@@ -211,65 +216,187 @@ async fn paid(
 
     info!("Paid request for email: {}", user.email);
 
-    // Search for the customer by email using the Stripe API
-    let customers = stripe::Customer::search(
+    // Search for the customer by id or email using the Stripe API
+    let customer = get_customer_by_workos_user_id_or_email(
+        app_state.clone(),
+        user.id.clone(),
+        user.email.clone(),
+    )
+    .await
+    .map_err(|e| actix_web::error::ErrorNotFound(e.to_string()))?;
+
+    // Retrieve the customer's subscriptions
+    let subscriptions = stripe::Subscription::list(
         &app_state.stripe_client,
-        CustomerSearchParams {
-            query: format!("email:'{}'", user.email),
+        &ListSubscriptions {
+            customer: Some(customer.id.clone()),
             ..Default::default()
         },
     )
     .await;
 
-    // If we have multiple customers, we should handle that case
+    match subscriptions {
+        Ok(subscriptions) => {
+            if !subscriptions.data.is_empty() {
+                info!(
+                    "Active subscription found for customer: {:?}",
+                    customer.email
+                );
+                Ok("You have an active subscription")
+            } else {
+                warn!(
+                    "No active subscription found for customer: {:?}",
+                    customer.email
+                );
+                Err(actix_web::error::ErrorPaymentRequired(
+                    "No active subscription found",
+                ))
+            }
+        }
+        Err(e) => {
+            error!("Failed to retrieve subscriptions: {:?}", e);
+            Err(actix_web::error::ErrorInternalServerError(e.to_string()))
+        }
+    }
+}
 
+#[derive(Serialize, Deserialize, Clone)]
+struct ManageResponse {
+    url: String,
+}
+
+#[get("/manage")]
+async fn manage(
+    app_state: web::Data<Arc<AppState>>,
+    app_config: web::Data<Arc<AppConfig>>,
+    authenticated_user: AuthenticatedUser,
+) -> Result<Json<ManageResponse>, actix_web::Error> {
+    let user = user_id_to_user(&authenticated_user.user_id, app_config.get_ref().clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorForbidden(e.to_string()))?;
+
+    info!("Manage request for email: {}", user.email);
+    // TODO: set actual settings for billing portal, just creates an empty page rn
+
+    // Search for the customer by email using the Stripe API
+    let customer = get_stripe_user_by_email(app_state.clone(), user.email.clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorNotFound(e.to_string()))?;
+
+    let billing_portal = BillingPortalSession::create(
+        &app_state.stripe_client,
+        CreateBillingPortalSession {
+            customer: customer.id.clone(),
+            return_url: Some("https://invisibility.so/"),
+            configuration: Default::default(),
+            flow_data: Default::default(),
+            expand: &[],
+            locale: None,
+            on_behalf_of: None,
+        },
+    )
+    .await
+    .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    Ok(Json(ManageResponse {
+        url: billing_portal.url,
+    }))
+}
+
+async fn get_stripe_user_by_email(
+    app_state: web::Data<Arc<AppState>>,
+    email: String,
+) -> Result<stripe::Customer, anyhow::Error> {
+    let customers = Customer::search(
+        &app_state.stripe_client,
+        CustomerSearchParams {
+            query: format!("email:'{}'", email,),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // TODO If we have multiple customers, we should handle that case
     match customers {
         Ok(customers) => {
             if let Some(customer) = customers.data.first() {
-                info!("Customer found: {:?}", customer);
-
-                // Retrieve the customer's subscriptions
-                let subscriptions = stripe::Subscription::list(
-                    &app_state.stripe_client,
-                    &ListSubscriptions {
-                        customer: Some(customer.id.clone()),
-                        status: Some(SubscriptionStatusFilter::Active),
-                        ..Default::default()
-                    },
-                )
-                .await;
-
-                match subscriptions {
-                    Ok(subscriptions) => {
-                        if !subscriptions.data.is_empty() {
-                            info!(
-                                "Active subscription found for customer: {:?}",
-                                customer.email
-                            );
-                            Ok("You have an active subscription")
-                        } else {
-                            warn!(
-                                "No active subscription found for customer: {:?}",
-                                customer.email
-                            );
-                            Err(actix_web::error::ErrorPaymentRequired(
-                                "No active subscription found",
-                            ))
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to retrieve subscriptions: {:?}", e);
-                        Err(actix_web::error::ErrorInternalServerError(e.to_string()))
-                    }
-                }
+                info!("Customer found: {:?}", customer.email);
+                Ok(customer.clone())
             } else {
-                warn!("Customer not found for email: {}", user.email);
-                Err(actix_web::error::ErrorNotFound("Customer not found"))
+                warn!("Customer not found for email: {}", email);
+                Err(anyhow!("Customer not found"))
             }
         }
         Err(e) => {
             error!("Failed to search for customer: {:?}", e);
-            Err(actix_web::error::ErrorInternalServerError(e.to_string()))
+            Err(anyhow!("Failed to search for customer"))
+        }
+    }
+}
+
+async fn get_stripe_user_by_workos_user_id(
+    app_state: web::Data<Arc<AppState>>,
+    workos_user_id: String,
+) -> Result<stripe::Customer, anyhow::Error> {
+    let customers = Customer::search(
+        &app_state.stripe_client,
+        CustomerSearchParams {
+            query: format!("metadata['workos_user_id']:'{}'", workos_user_id),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    match customers {
+        Ok(customers) => {
+            if let Some(customer) = customers.data.first() {
+                info!("Customer found via workos_user_id: {:?}", customer.email);
+                Ok(customer.clone())
+            } else {
+                warn!("Customer not found for workos_user_id: {}", workos_user_id);
+                Err(anyhow!("Customer not found"))
+            }
+        }
+        Err(e) => {
+            error!("Failed to search for customer: {:?}", e);
+            Err(anyhow!("Failed to search for customer"))
+        }
+    }
+}
+
+async fn get_customer_by_workos_user_id_or_email(
+    app_state: web::Data<Arc<AppState>>,
+    workos_user_id: String,
+    email: String,
+) -> Result<stripe::Customer, anyhow::Error> {
+    let customer_by_workos_user_id =
+        get_stripe_user_by_workos_user_id(app_state.clone(), workos_user_id.clone()).await;
+
+    match customer_by_workos_user_id {
+        Ok(customer) => {
+            info!("Customer found by workos_user_id: {:?}", customer.email);
+            Ok(customer)
+        }
+        Err(_) => {
+            info!(
+                "Customer not found by workos_user_id, trying by email: {}",
+                email
+            );
+            let customer_by_email =
+                get_stripe_user_by_email(app_state.clone(), email.clone()).await;
+            match customer_by_email {
+                Ok(customer) => {
+                    info!("Customer found by email: {:?}", customer.email);
+                    Ok(customer)
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to find customer by workos_user_id and email: {:?}",
+                        e
+                    );
+                    Err(anyhow!("Customer not found by workos_user_id or email"))
+                }
+            }
         }
     }
 }
