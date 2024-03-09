@@ -32,3 +32,4 @@ thiserror = "1.0.57"
 # tokenizers = { version = "0.15.2", features = ["http"] }
 tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1.40"
+url = "2.5.0"

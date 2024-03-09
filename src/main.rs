@@ -111,7 +111,7 @@ async fn main(
     color_eyre::install().unwrap();
 
     let app_config = Arc::new(AppConfig::new(&secret_store).unwrap());
-    let app_state = AppState {
+    let app_state = Arc::new(AppState {
         persist,
         oai_client: Client::with_config(
             OpenAIConfig::new().with_api_key(app_config.openai_api_key.clone()),
@@ -123,7 +123,7 @@ async fn main(
         ),
         // bedrock_client: get_bedrock_client(&app_config).await,
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
-    };
+    });
 
     let config = move |cfg: &mut web::ServiceConfig| {
         cfg.service(
@@ -141,7 +141,8 @@ async fn main(
                         .service(routes::pay::invite)
                         .service(routes::pay::checkout)
                         .service(routes::pay::paid)
-                        .service(routes::pay::payment_success),
+                        .service(routes::pay::payment_success)
+                        .service(routes::pay::manage),
                 )
                 .wrap(middleware::auth::Authentication {
                     app_config: app_config.clone(),
