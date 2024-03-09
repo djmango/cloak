@@ -144,13 +144,14 @@ async fn checkout(
     };
 
     // let base = "http://localhost:8000/pay/payment_success?session_id={CHECKOUT_SESSION_ID}";
-    let base = "https//cloak.invisibility.so/pay/payment_success?session_id={CHECKOUT_SESSION_ID}";
+    // let base = "https//cloak.invisibility.so/pay/payment_success?session_id={CHECKOUT_SESSION_ID}";
+
+    // let mut url = Url::parse(base).expect("Base URL should be valid");
+    // url.query_pairs_mut().append_pair("user_email", user_email);
+
+    // let success_url = url.to_string();
     let user_email = checkout_request.email.as_str();
-
-    let mut url = Url::parse(base).expect("Base URL should be valid");
-    url.query_pairs_mut().append_pair("user_email", user_email);
-
-    let success_url = url.to_string();
+    let success_url = format!("https://cloak.invisibility.so/pay/payment_success?session_id={{CHECKOUT_SESSION_ID}}&user_email={}", user_email);
 
     // Grab existing users in stripe with the same email, handle gracefully
     let customer =
