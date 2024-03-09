@@ -1,6 +1,7 @@
 use actix_web::{get, web, Responder};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+// use convert_case::{Case, Casing};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use stripe::generated::checkout::checkout_session;
@@ -19,6 +20,7 @@ use crate::{AppConfig, AppState};
 struct UserInvite {
     email: String,
     code: String,
+    // coupon_id: Option<String>,
     created_at: Option<DateTime<Utc>>,
 }
 
@@ -30,10 +32,18 @@ async fn invite(
     let mut user_invite = query.into_inner();
     user_invite.created_at = Utc::now().into();
 
+    // Search for stripe coupons by the name
+    // let coupons = stripe::Coupon::list(
+    //     &app_state.stripe_client,
+    //     &stripe::ListCoupons {
+    //         name: Some(user_invite.code.as_str()),
+    //         ..Default::default()
+    //     },
+    // );
+
     // Store the user invite data in Shuttle Persist
     let result = app_state
         .persist
-        // .save(&user_invite.email, &user_invite)
         .save::<UserInvite>(
             &format!("user_invite:{}", &user_invite.email),
             user_invite.clone(),
@@ -44,7 +54,6 @@ async fn invite(
         Ok(_) => {
             info!("User invite stored successfully: {:?}", user_invite.email);
             Ok("User invite stored successfully")
-            // Ok(web::Redirect::to("https://github.com/InvisibilityInc/Invisibility/releases/download/2.0.0/Invisibility.Installer.2.0.0.dmg"))
         }
         Err(e) => {
             error!("Failed to store user invite: {:?}", e);
@@ -75,7 +84,7 @@ async fn checkout(
 
     // Price is hardcoded
     let line_item = CreateCheckoutSessionLineItems {
-        price: Some("price_1Or7FsHQqwgWa5gA8e1L5wna".into()),
+        price: Some("price_1OsEE2HQqwgWa5gA69vwLYuv".into()),
         quantity: Some(1),
         ..Default::default()
     };
@@ -154,10 +163,14 @@ async fn checkout(
             }
         }
         None => {
-            info!("No discounts applied");
+            info!("No discounts applied, applying default invite discount");
+            let discount = CreateCheckoutSessionDiscounts {
+                coupon: Some("i1AqMsa7".into()),
+                ..Default::default()
+            };
             CreateCheckoutSession {
-                allow_promotion_codes: Some(true),
                 customer_email: checkout_request.email.as_str().into(),
+                discounts: vec![discount].into(),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
@@ -207,6 +220,8 @@ async fn paid(
         },
     )
     .await;
+
+    // If we have multiple customers, we should handle that case
 
     match customers {
         Ok(customers) => {
