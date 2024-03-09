@@ -43,7 +43,8 @@ async fn invite(
     match result {
         Ok(_) => {
             info!("User invite stored successfully: {:?}", user_invite.email);
-            Ok(web::Redirect::to("https://github.com/InvisibilityInc/Invisibility/releases/download/2.0.0/Invisibility.Installer.2.0.0.dmg"))
+            Ok("User invite stored successfully")
+            // Ok(web::Redirect::to("https://github.com/InvisibilityInc/Invisibility/releases/download/2.0.0/Invisibility.Installer.2.0.0.dmg"))
         }
         Err(e) => {
             error!("Failed to store user invite: {:?}", e);
@@ -54,6 +55,7 @@ async fn invite(
 
 #[get("/payment_success")]
 async fn payment_success() -> Result<impl Responder, actix_web::Error> {
+    info!("Payment success");
     Ok(web::Redirect::to("invisibility://paid"))
 }
 
@@ -130,6 +132,11 @@ async fn checkout(
         }
     };
 
+    let subscription_data = stripe::CreateCheckoutSessionSubscriptionData {
+        trial_period_days: Some(3),
+        ..Default::default()
+    };
+
     // Create the checkout session
     // If discounts are found, apply them
     // If no discounts are found, create a checkout session without discounts but allow promotion codes
@@ -141,6 +148,7 @@ async fn checkout(
                 discounts: discounts.into(),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
+                subscription_data: Some(subscription_data),
                 success_url: "https://cloak.invisibility.so/pay/payment_success".into(),
                 ..Default::default()
             }
@@ -152,6 +160,7 @@ async fn checkout(
                 customer_email: checkout_request.email.as_str().into(),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
+                subscription_data: Some(subscription_data),
                 success_url: "https://cloak.invisibility.so/pay/payment_success".into(),
                 ..Default::default()
             }
@@ -218,10 +227,16 @@ async fn paid(
                 match subscriptions {
                     Ok(subscriptions) => {
                         if !subscriptions.data.is_empty() {
-                            info!("Active subscription found for customer: {:?}", customer);
+                            info!(
+                                "Active subscription found for customer: {:?}",
+                                customer.email
+                            );
                             Ok("You have an active subscription")
                         } else {
-                            warn!("No active subscription found for customer: {:?}", customer);
+                            warn!(
+                                "No active subscription found for customer: {:?}",
+                                customer.email
+                            );
                             Err(actix_web::error::ErrorPaymentRequired(
                                 "No active subscription found",
                             ))
