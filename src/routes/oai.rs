@@ -39,6 +39,9 @@ async fn chat(
     // If we want to use claude, use the openrouter client, otherwise use the standard openai client
     let client: Client<OpenAIConfig> = match request_args.model.as_str() {
         "anthropic/claude-3-opus:beta" => app_state.openrouter_client.clone(),
+        "anthropic/claude-3-sonnet:beta" => app_state.openrouter_client.clone(),
+        "google/gemini-pro" => app_state.openrouter_client.clone(),
+        "google/gemini-pro-vision" => app_state.openrouter_client.clone(),
         _ => app_state.oai_client.clone(),
     };
 
@@ -50,12 +53,21 @@ async fn chat(
     }
 
     // Truncate messages
-    // Include the last 5
-    if request_args.messages.len() > 5 {
+    // Include the last x messages, where x is the number of messages we want to keep
+    let num_messages: i32 = match request_args.model.as_str() {
+        "gpt-4-vision-preview" => 1,
+        "google/gemini-pro-vision" => 1,
+        _ => 5,
+    };
+
+    if request_args.messages.len() > num_messages as usize {
         request_args.messages = request_args
             .messages
-            .split_off(request_args.messages.len() - 5);
+            .split_off(request_args.messages.len() - num_messages as usize);
     }
+
+    // Max tokens as 2048
+    request_args.max_tokens = Some(2048);
 
     let response = client
         .chat()

@@ -87,8 +87,6 @@ async fn payment_success(
                     .await
                     .map_err(|e| actix_web::error::ErrorForbidden(e.to_string()))?;
 
-            info!("Session retrieved: {:?}", session);
-
             // Set workos_user id as metadata in stripe customer
             let mut metadata: stripe::Metadata = HashMap::new();
             metadata.insert("workos_user_id".to_string(), workos_user.id.to_string());
