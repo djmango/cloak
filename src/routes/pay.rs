@@ -9,11 +9,11 @@ use std::sync::Arc;
 use stripe::generated::checkout::checkout_session;
 use stripe::{
     BillingPortalSession, CheckoutSession, CheckoutSessionId, CheckoutSessionMode,
-    CreateBillingPortalSession, CreateCheckoutSession, CreateCheckoutSessionLineItems, Customer,
-    CustomerSearchParams, ListSubscriptions, UpdateCustomer,
+    CreateBillingPortalSession, CreateCheckoutSession, CreateCheckoutSessionDiscounts,
+    CreateCheckoutSessionLineItems, Customer, CustomerSearchParams, ListSubscriptions,
+    UpdateCustomer,
 };
 use tracing::{error, info, warn};
-use url::Url;
 
 use crate::middleware::auth::AuthenticatedUser;
 use crate::routes::auth::{user_email_to_user, user_id_to_user};
@@ -23,7 +23,6 @@ use crate::{AppConfig, AppState};
 struct UserInvite {
     email: String,
     code: String,
-    // coupon_id: Option<String>,
     created_at: Option<DateTime<Utc>>,
 }
 
@@ -126,7 +125,6 @@ async fn checkout(
     app_state: web::Data<Arc<AppState>>,
     query: web::Query<CheckoutRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    info!("Checkout request");
     let checkout_request = query.into_inner();
     info!("Checkout request for email: {}", checkout_request.email);
 
@@ -143,15 +141,38 @@ async fn checkout(
         ..Default::default()
     };
 
-    // let base = "http://localhost:8000/pay/payment_success?session_id={CHECKOUT_SESSION_ID}";
-    // let base = "https//cloak.invisibility.so/pay/payment_success?session_id={CHECKOUT_SESSION_ID}";
-
-    // let mut url = Url::parse(base).expect("Base URL should be valid");
-    // url.query_pairs_mut().append_pair("user_email", user_email);
-
-    // let success_url = url.to_string();
+    // Success URL is hardcoded, session id is provided by Stripe and user email is passed as a query parameter for matching
     let user_email = checkout_request.email.as_str();
     let success_url = format!("https://cloak.invisibility.so/pay/payment_success?session_id={{CHECKOUT_SESSION_ID}}&user_email={}", user_email);
+
+    // Check if a user invite exists for the email
+    let user_invite = app_state
+        .persist
+        .load::<UserInvite>(&format!("user_invite:{}", checkout_request.email));
+
+    // If a user invite is found, search for the promotion code and retrieve its ID
+    let discounts: Option<Vec<CreateCheckoutSessionDiscounts>> = match user_invite {
+        Ok(user_invite) => {
+            info!(
+                "User invite found: {:?}, {:?}",
+                user_invite.email, user_invite.code
+            );
+
+            Some(vec![CreateCheckoutSessionDiscounts {
+                coupon: Some("jOQCrk1k".into()),
+                ..Default::default()
+            }])
+
+            // Search for the promotion code by listing all active promotion codes
+        }
+        _ => {
+            warn!(
+                "User invite not found for email: {}",
+                checkout_request.email
+            );
+            None
+        }
+    };
 
     // Grab existing users in stripe with the same email, handle gracefully
     let customer =
@@ -164,7 +185,8 @@ async fn checkout(
 
             CreateCheckoutSession {
                 customer: Some(customer.id.clone()),
-                allow_promotion_codes: Some(true),
+                // allow_promotion_codes: Some(true),
+                discounts,
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
@@ -176,7 +198,8 @@ async fn checkout(
             info!("Did not find existing customer: {:?}", e);
             CreateCheckoutSession {
                 customer_email: checkout_request.email.as_str().into(),
-                allow_promotion_codes: Some(true),
+                // allow_promotion_codes: Some(true),
+                discounts,
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
