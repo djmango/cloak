@@ -372,7 +372,6 @@ async fn get_stripe_user_by_workos_user_id(
     match customers {
         Ok(customers) => {
             if let Some(customer) = customers.data.first() {
-                info!("Customer found via workos_user_id: {:?}", customer.email);
                 Ok(customer.clone())
             } else {
                 warn!("Customer not found for workos_user_id: {}", workos_user_id);
@@ -412,7 +411,7 @@ async fn get_customer_by_workos_user_id_or_email(
                     Ok(customer)
                 }
                 Err(e) => {
-                    error!(
+                    warn!(
                         "Failed to find customer by workos_user_id and email: {:?}",
                         e
                     );

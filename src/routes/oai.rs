@@ -3,12 +3,6 @@ use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
 use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionStreamResponse};
 use async_openai::Client;
-// use aws_sdk_bedrockruntime::error::SdkError;
-// use aws_sdk_bedrockruntime::operation::invoke_model_with_response_stream::{
-//     InvokeModelWithResponseStreamError, InvokeModelWithResponseStreamOutput,
-// };
-// use aws_sdk_bedrockruntime::primitives::Blob;
-// use aws_smithy_runtime_api::http::response::Response;
 use bytes::Bytes;
 use futures::stream::StreamExt;
 use serde_json::to_string;
