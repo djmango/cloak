@@ -74,9 +74,21 @@ async fn chat(
         .map(
             |item_result: Result<CreateChatCompletionStreamResponse, OpenAIError>| match item_result
             {
-                Ok(item) => to_string(&item)
-                    .map_err(actix_web::error::ErrorInternalServerError)
-                    .map(|json_string| Bytes::from(format!("data: {}\n\n", json_string))),
+                Ok(item) => {
+                    // Log the finish reason
+                    if let Some(choice) = item.choices.first() {
+                        match &choice.finish_reason {
+                            Some(reason) => {
+                                info!("Chat completion finished with reason: {:?}", reason);
+                            }
+                            None => {}
+                        }
+                    }
+
+                    to_string(&item)
+                        .map_err(actix_web::error::ErrorInternalServerError)
+                        .map(|json_string| Bytes::from(format!("data: {}\n\n", json_string)))
+                }
                 Err(e) => Err(actix_web::error::ErrorInternalServerError(e.to_string())),
             },
         )
