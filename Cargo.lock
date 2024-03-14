@@ -277,7 +277,7 @@ dependencies = [
 [[package]]
 name = "async-openai"
 version = "0.19.1"
-source = "git+https://github.com/djmango/async-openai.git?branch=master#d9f259a3b8bf559cf2730fa8ecafb986e8f0ff38"
+source = "git+https://github.com/djmango/async-openai.git?branch=master#808d5822485385990b2f3a03e28621f1b846a18f"
 dependencies = [
  "async-convert",
  "backoff",
