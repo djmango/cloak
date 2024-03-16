@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use actix_web::{
     get,
     web::{self, Json},
@@ -9,6 +7,7 @@ use chrono::{DateTime, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::{middleware::auth::AuthenticatedUser, AppConfig};
@@ -46,11 +45,10 @@ struct WorkOSAuthRequest {
     invitation_code: Option<String>,
 }
 
-// For the response
 #[derive(Deserialize)]
-#[allow(dead_code)] // We never really use organization_id but whatever
 struct WorkOSAuthResponse {
     user: WorkOSUser,
+    #[allow(dead_code)] // We never really use organization_id but whatever
     organization_id: Option<String>,
 }
 
@@ -61,12 +59,14 @@ pub struct Claims {
     pub iat: usize,
 }
 
+/// A redirect to the WorkOS login page
 #[get("/workos/login")]
 async fn login() -> Result<impl Responder, Error> {
     let url = "https://authkit.invisibility.so/";
     Ok(web::Redirect::to(url))
 }
 
+/// The callback URL for the WorkOS authentication flow
 #[get("/workos/callback")]
 async fn auth_callback(
     app_config: web::Data<Arc<AppConfig>>,
@@ -88,6 +88,31 @@ async fn auth_callback(
     Ok(web::Redirect::to(redirect_url))
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct RefreshTokenResponse {
+    token: String,
+}
+
+#[get("/token/refresh")]
+/// Refresh the token for an authenticated user, really just generates a new token
+async fn refresh_token(
+    authenticated_user: AuthenticatedUser,
+    app_config: web::Data<Arc<AppConfig>>,
+) -> Result<Json<RefreshTokenResponse>, Error> {
+    let user_id = authenticated_user.user_id.as_ref();
+    let workos_user = user_id_to_user(user_id, app_config.get_ref().clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    // Sign a JWT with the user info
+    let jwt = sign_jwt(&workos_user, app_config.get_ref().clone())
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    info!("Refreshed token for user {}", workos_user.email);
+    Ok(web::Json(RefreshTokenResponse { token: jwt }))
+}
+
+/// Get the user information for the authenticated user
 #[get("/user")]
 async fn get_user(
     authenticated_user: AuthenticatedUser,
@@ -102,6 +127,7 @@ async fn get_user(
     Ok(web::Json(workos_user?))
 }
 
+/// Look up a user by ID using the WorkOS API and return the user information
 pub async fn user_id_to_user(
     user_id: &str,
     app_config: Arc<AppConfig>,
@@ -153,6 +179,7 @@ struct GetUserResponse {
     list_metadata: ListMetadata,
 }
 
+/// Look up a user by email using the WorkOS API and return the user information
 pub async fn user_email_to_user(
     user_email: &str,
     app_config: Arc<AppConfig>,
@@ -192,6 +219,7 @@ pub async fn user_email_to_user(
     }
 }
 
+/// Exchange the WorkOS provided code for user information using the WorkOS API
 async fn exchange_code_for_user(
     code: &str,
     app_config: Arc<AppConfig>,
@@ -238,6 +266,7 @@ async fn exchange_code_for_user(
     }
 }
 
+/// Sign a JWT with the user info. By default, the token expires after 5 weeks. Returns the JWT.
 fn sign_jwt(
     user_info: &WorkOSUser,
     app_config: Arc<AppConfig>,
