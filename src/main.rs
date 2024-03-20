@@ -113,7 +113,11 @@ async fn main(
         cfg.service(
             web::scope("")
                 .service(hello_world)
-                .service(web::scope("/oai").service(routes::oai::chat))
+                .service(
+                    web::scope("/oai")
+                        .service(routes::oai::chat)
+                        .app_data(web::JsonConfig::default().limit(1024 * 1024 * 10)), // 10 MB
+                )
                 .service(
                     web::scope("/auth")
                         .service(routes::auth::auth_callback)
