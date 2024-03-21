@@ -1,10 +1,9 @@
-use actix_web::middleware::Logger;
 use actix_web::{get, web};
 use anyhow::anyhow;
 use async_openai::{config::OpenAIConfig, Client};
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_persist::PersistInstance;
-use shuttle_secrets::SecretStore;
+use shuttle_runtime::SecretStore;
 use std::sync::Arc;
 
 mod middleware;
@@ -26,6 +25,7 @@ pub struct AppConfig {
     pub aws_access_key_id: String,
     pub aws_secret_access_key: String,
     pub stripe_secret_key: String,
+    pub sentry_dsn: String,
 }
 
 impl AppConfig {
@@ -67,6 +67,10 @@ impl AppConfig {
             .get("STRIPE_SECRET_KEY")
             .ok_or_else(|| anyhow!("STRIPE_SECRET_KEY not found"))?;
 
+        let sentry_dsn = secret_store
+            .get("SENTRY_DSN")
+            .ok_or_else(|| anyhow!("SENTRY_DSN not found"))?;
+
         Ok(AppConfig {
             openai_api_key,
             openrouter_api_key,
@@ -77,6 +81,7 @@ impl AppConfig {
             aws_access_key_id,
             aws_secret_access_key,
             stripe_secret_key,
+            sentry_dsn,
         })
     }
 }
@@ -91,7 +96,7 @@ struct AppState {
 
 #[shuttle_runtime::main]
 async fn main(
-    #[shuttle_secrets::Secrets] secret_store: SecretStore,
+    #[shuttle_runtime::Secrets] secret_store: SecretStore,
     #[shuttle_persist::Persist] persist: PersistInstance,
 ) -> ShuttleActixWeb<impl FnOnce(&mut web::ServiceConfig) + Send + Clone + 'static> {
     let app_config = Arc::new(AppConfig::new(&secret_store).unwrap());
@@ -105,9 +110,17 @@ async fn main(
                 .with_api_key(app_config.openrouter_api_key.clone())
                 .with_api_base("https://openrouter.ai/api/v1"),
         ),
-        // bedrock_client: get_bedrock_client(&app_config).await,
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
+
+    let _guard = sentry::init((
+        app_config.sentry_dsn.clone(),
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            traces_sample_rate: 0.2,
+            ..Default::default()
+        },
+    ));
 
     let config = move |cfg: &mut web::ServiceConfig| {
         cfg.service(
@@ -116,7 +129,7 @@ async fn main(
                 .service(
                     web::scope("/oai")
                         .service(routes::oai::chat)
-                        .app_data(web::JsonConfig::default().limit(1024 * 1024 * 10)), // 10 MB
+                        .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
                 )
                 .service(
                     web::scope("/auth")
@@ -133,19 +146,11 @@ async fn main(
                         .service(routes::pay::paid)
                         .service(routes::pay::payment_success),
                 )
-                .wrap(middleware::auth::Authentication {
+                .wrap(middleware::auth::AuthenticationMiddleware {
                     app_config: app_config.clone(),
                 })
-                .wrap(Logger::new(
-                    "%t %{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T",
-                ))
-                // • %t: Timestamp
-                // • %r: First line of the request (method and path)
-                // • %s: Response status code
-                // • %b: Size of response in bytes, excluding HTTP headers
-                // • %{Referer}i: The value of the Referer header
-                // • %User-Agent}i: The value of the User-Agent header
-                // • %T: Time taken to serve the request, in seconds
+                .wrap(middleware::logging::LoggingMiddleware)
+                .wrap(sentry_actix::Sentry::new())
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(app_config.clone())),
         );
