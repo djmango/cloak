@@ -1,3 +1,4 @@
+use actix_web::middleware::Logger;
 use actix_web::{get, web};
 use anyhow::anyhow;
 use async_openai::{config::OpenAIConfig, Client};
@@ -150,6 +151,7 @@ async fn main(
                     app_config: app_config.clone(),
                 })
                 .wrap(middleware::logging::LoggingMiddleware)
+                .wrap(Logger::new("%{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T"))
                 .wrap(sentry_actix::Sentry::new())
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(app_config.clone())),
