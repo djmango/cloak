@@ -1,8 +1,3 @@
-use std::{
-    future::{ready, Ready},
-    sync::Arc,
-};
-
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     error::ErrorUnauthorized,
@@ -11,7 +6,11 @@ use actix_web::{
 };
 use futures_util::future::LocalBoxFuture;
 use jsonwebtoken::{decode, DecodingKey, Validation};
-use tracing::{info, warn};
+use std::{
+    future::{ready, Ready},
+    sync::Arc,
+};
+use tracing::{debug, warn};
 
 use crate::{routes::auth::Claims, AppConfig};
 
@@ -36,14 +35,14 @@ impl FromRequest for AuthenticatedUser {
     }
 }
 
-pub struct Authentication {
+pub struct AuthenticationMiddleware {
     pub app_config: Arc<AppConfig>,
 }
 
 // Middleware factory is `Transform` trait
 // `S` - type of the next service
 // `B` - type of response's body
-impl<S, B> Transform<S, ServiceRequest> for Authentication
+impl<S, B> Transform<S, ServiceRequest> for AuthenticationMiddleware
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     S::Future: 'static,
@@ -52,23 +51,23 @@ where
     type Response = ServiceResponse<B>;
     type Error = Error;
     type InitError = ();
-    type Transform = AuthenticationMiddleware<S>;
+    type Transform = AuthenticationMiddlewareService<S>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(AuthenticationMiddleware {
+        ready(Ok(AuthenticationMiddlewareService {
             service,
             app_config: self.app_config.clone(),
         }))
     }
 }
 
-pub struct AuthenticationMiddleware<S> {
+pub struct AuthenticationMiddlewareService<S> {
     service: S,
     app_config: Arc<AppConfig>,
 }
 
-impl<S, B> Service<ServiceRequest> for AuthenticationMiddleware<S>
+impl<S, B> Service<ServiceRequest> for AuthenticationMiddlewareService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     S::Future: 'static,
@@ -100,7 +99,7 @@ where
                         let claims = token_data.claims;
                         let user_id = claims.sub;
 
-                        info!("Authenticated user: {}", &user_id);
+                        debug!("Authenticated user: {}", &user_id);
                         req.extensions_mut().insert(AuthenticatedUser { user_id });
                     }
                     Err(e) => {
@@ -109,7 +108,7 @@ where
                 }
             }
             None => {
-                info!("No Authorization header found.");
+                debug!("No Authorization header found.");
             }
         };
 

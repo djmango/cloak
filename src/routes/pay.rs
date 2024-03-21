@@ -345,7 +345,6 @@ async fn get_stripe_user_by_email(
                 info!("Customer found: {:?}", customer.email);
                 Ok(customer.clone())
             } else {
-                warn!("Customer not found for email: {}", email);
                 Err(anyhow!("Customer not found"))
             }
         }
@@ -374,7 +373,6 @@ async fn get_stripe_user_by_workos_user_id(
             if let Some(customer) = customers.data.first() {
                 Ok(customer.clone())
             } else {
-                warn!("Customer not found for workos_user_id: {}", workos_user_id);
                 Err(anyhow!("Customer not found"))
             }
         }
