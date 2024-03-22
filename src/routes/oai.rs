@@ -33,7 +33,11 @@ async fn chat(
     // If we want to use claude, use the openrouter client, otherwise use the standard openai client
     let client: Client<OpenAIConfig> = match request_args.model.as_str() {
         "anthropic/claude-3-opus:beta" => app_state.openrouter_client.clone(),
+        "anthropic/claude-3-opus" => app_state.openrouter_client.clone(),
         "anthropic/claude-3-sonnet:beta" => app_state.openrouter_client.clone(),
+        "anthropic/claude-3-sonnet" => app_state.openrouter_client.clone(),
+        "anthropic/claude-3-haiku:beta" => app_state.openrouter_client.clone(),
+        "anthropic/claude-3-haiku" => app_state.openrouter_client.clone(),
         "google/gemini-pro" => app_state.openrouter_client.clone(),
         "google/gemini-pro-vision" => app_state.openrouter_client.clone(),
         _ => app_state.oai_client.clone(),
