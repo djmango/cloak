@@ -1,90 +1,20 @@
 use actix_web::middleware::Logger;
 use actix_web::{get, web};
-use anyhow::anyhow;
 use async_openai::{config::OpenAIConfig, Client};
+use config::AppConfig;
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
+use std::collections::HashMap;
 use std::sync::Arc;
 
+mod config;
 mod middleware;
 mod routes;
 
 #[get("/")]
 async fn hello_world() -> &'static str {
     "Hello World!"
-}
-
-#[derive(Clone)]
-pub struct AppConfig {
-    pub openai_api_key: String,
-    pub openrouter_api_key: String,
-    pub workos_api_key: String,
-    pub workos_client_id: String,
-    pub jwt_secret: String,
-    pub aws_region: String,
-    pub aws_access_key_id: String,
-    pub aws_secret_access_key: String,
-    pub stripe_secret_key: String,
-    pub sentry_dsn: String,
-}
-
-impl AppConfig {
-    // Asynchronous factory function for creating AppConfig
-    pub fn new(secret_store: &SecretStore) -> Result<Self, anyhow::Error> {
-        let openai_api_key = secret_store
-            .get("OPENAI_API_KEY")
-            .ok_or_else(|| anyhow!("OPENAI_API_KEY not found"))?;
-
-        let openrouter_api_key = secret_store
-            .get("OPENROUTER_API_KEY")
-            .ok_or_else(|| anyhow!("OPENROUTER_API_KEY not found"))?;
-
-        let workos_api_key = secret_store
-            .get("WORKOS_API_KEY")
-            .ok_or_else(|| anyhow!("WORKOS_API_KEY not found"))?;
-
-        let workos_client_id = secret_store
-            .get("WORKOS_CLIENT_ID")
-            .ok_or_else(|| anyhow!("WORKOS_CLIENT_ID not found"))?;
-
-        let jwt_secret = secret_store
-            .get("JWT_SECRET")
-            .ok_or_else(|| anyhow!("JWT_SECRET not found"))?;
-
-        let aws_region = secret_store
-            .get("AWS_REGION")
-            .ok_or_else(|| anyhow!("AWS_REGION not found"))?;
-
-        let aws_access_key_id = secret_store
-            .get("AWS_ACCESS_KEY_ID")
-            .ok_or_else(|| anyhow!("AWS_ACCESS_KEY_ID not found"))?;
-
-        let aws_secret_access_key = secret_store
-            .get("AWS_SECRET_ACCESS_KEY")
-            .ok_or_else(|| anyhow!("AWS_SECRET_ACCESS_KEY not found"))?;
-
-        let stripe_secret_key = secret_store
-            .get("STRIPE_SECRET_KEY")
-            .ok_or_else(|| anyhow!("STRIPE_SECRET_KEY not found"))?;
-
-        let sentry_dsn = secret_store
-            .get("SENTRY_DSN")
-            .ok_or_else(|| anyhow!("SENTRY_DSN not found"))?;
-
-        Ok(AppConfig {
-            openai_api_key,
-            openrouter_api_key,
-            workos_api_key,
-            workos_client_id,
-            jwt_secret,
-            aws_region,
-            aws_access_key_id,
-            aws_secret_access_key,
-            stripe_secret_key,
-            sentry_dsn,
-        })
-    }
 }
 
 #[derive(Clone)]
@@ -109,7 +39,25 @@ async fn main(
         openrouter_client: Client::with_config(
             OpenAIConfig::new()
                 .with_api_key(app_config.openrouter_api_key.clone())
-                .with_api_base("https://openrouter.ai/api/v1"),
+                // .with_api_base("https://openrouter.ai/api/v1"),
+                .with_api_base("https://gateway.hconeai.com/api/v1")
+                .with_additional_headers(HashMap::from_iter(
+                    vec![
+                        (
+                            "Helicone-Auth".to_string(),
+                            format!("Bearer {}", app_config.helicone_api_key),
+                        ),
+                        (
+                            "Helicone-Target-Url".to_string(),
+                            "https://openrouter.ai".to_string(),
+                        ),
+                        (
+                            "Helicone-Target-Provider".to_string(),
+                            "OpenRouter".to_string(),
+                        ),
+                    ]
+                    .into_iter(),
+                )),
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
