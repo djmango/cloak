@@ -30,6 +30,9 @@ async fn chat(
     // For now, we only support streaming completions
     request_args.stream = Some(true);
 
+    // Set the user ID
+    request_args.user = Some(user_id.clone());
+
     // If we want to use claude, use the openrouter client, otherwise use the standard openai client
     let client: Client<OpenAIConfig> = match request_args.model.as_str() {
         "anthropic/claude-3-opus:beta" => app_state.openrouter_client.clone(),
