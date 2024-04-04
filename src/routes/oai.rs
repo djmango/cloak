@@ -45,6 +45,7 @@ async fn chat(
         "google/gemini-pro-vision" => app_state.openrouter_client.clone(),
         "groq/mixtral-8x7b-32768" => app_state.groq_client.clone(),
         "perplexity/sonar-medium-online" => app_state.perplexity_client.clone(),
+        "perplexity/mixtral-8x7b-instruct" => app_state.perplexity_client.clone(),
         _ => app_state.oai_client.clone(),
     };
 
@@ -77,6 +78,7 @@ async fn chat(
     request_args.model = match request_args.model.as_str() {
         "groq/mixtral-8x7b-32768" => "mixtral-8x7b-32768".to_string(),
         "perplexity/sonar-medium-online" => "sonar-medium-online".to_string(),
+        "perplexity/mixtral-8x7b-instruct" => "mixtral-8x7b-instruct".to_string(),
         _ => request_args.model,
     };
 
