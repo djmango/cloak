@@ -22,6 +22,8 @@ struct AppState {
     persist: PersistInstance,
     oai_client: Client<OpenAIConfig>,
     openrouter_client: Client<OpenAIConfig>,
+    groq_client: Client<OpenAIConfig>,
+    perplexity_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
 }
 
@@ -39,7 +41,6 @@ async fn main(
         openrouter_client: Client::with_config(
             OpenAIConfig::new()
                 .with_api_key(app_config.openrouter_api_key.clone())
-                // .with_api_base("https://openrouter.ai/api/v1"),
                 .with_api_base("https://gateway.hconeai.com/api/v1")
                 .with_additional_headers(HashMap::from_iter(
                     vec![
@@ -55,6 +56,44 @@ async fn main(
                             "Helicone-Target-Provider".to_string(),
                             "OpenRouter".to_string(),
                         ),
+                    ]
+                    .into_iter(),
+                )),
+        ),
+        groq_client: Client::with_config(
+            OpenAIConfig::new()
+                .with_api_key(app_config.groq_api_key.clone())
+                .with_api_base("https://gateway.hconeai.com/openai/v1")
+                .with_additional_headers(HashMap::from_iter(
+                    vec![
+                        (
+                            "Helicone-Auth".to_string(),
+                            format!("Bearer {}", app_config.helicone_api_key),
+                        ),
+                        (
+                            "Helicone-Target-Url".to_string(),
+                            "https://api.groq.com".to_string(),
+                        ),
+                        ("Helicone-Target-Provider".to_string(), "Groq".to_string()),
+                    ]
+                    .into_iter(),
+                )),
+        ),
+        perplexity_client: Client::with_config(
+            OpenAIConfig::new()
+                .with_api_key(app_config.perplexity_api_key.clone())
+                .with_api_base("https://gateway.hconeai.com")
+                .with_additional_headers(HashMap::from_iter(
+                    vec![
+                        (
+                            "Helicone-Auth".to_string(),
+                            format!("Bearer {}", app_config.helicone_api_key),
+                        ),
+                        (
+                            "Helicone-Target-Url".to_string(),
+                            "https://api.perplexity.ai".to_string(),
+                        ),
+                        ("Helicone-Target-Provider".to_string(), "Groq".to_string()),
                     ]
                     .into_iter(),
                 )),

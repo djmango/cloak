@@ -43,6 +43,8 @@ async fn chat(
         "anthropic/claude-3-haiku" => app_state.openrouter_client.clone(),
         "google/gemini-pro" => app_state.openrouter_client.clone(),
         "google/gemini-pro-vision" => app_state.openrouter_client.clone(),
+        "groq/mixtral-8x7b-32768" => app_state.groq_client.clone(),
+        "perplexity/sonar-medium-online" => app_state.perplexity_client.clone(),
         _ => app_state.oai_client.clone(),
     };
 
@@ -58,7 +60,8 @@ async fn chat(
     let num_messages: i32 = match request_args.model.as_str() {
         "gpt-4-vision-preview" => 1,
         "google/gemini-pro-vision" => 1,
-        _ => 5,
+        "perplexity/sonar-medium-online" => 1,
+        _ => 10,
     };
 
     if request_args.messages.len() > num_messages as usize {
@@ -69,6 +72,13 @@ async fn chat(
 
     // Max tokens as 2048
     request_args.max_tokens = Some(2048);
+
+    // Conform the model id to what's expected by the provider
+    request_args.model = match request_args.model.as_str() {
+        "groq/mixtral-8x7b-32768" => "mixtral-8x7b-32768".to_string(),
+        "perplexity/sonar-medium-online" => "sonar-medium-online".to_string(),
+        _ => request_args.model,
+    };
 
     let response = client
         .chat()

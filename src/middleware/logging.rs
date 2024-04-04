@@ -85,7 +85,7 @@ where
             );
 
             match status_code {
-                400..=499 => warn!("{}", log_message),
+                400..=499 => error!("{}", log_message),
                 500..=599 => error!("{}", log_message),
                 _ => info!("{}", log_message),
             }

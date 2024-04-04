@@ -5,6 +5,8 @@ use shuttle_runtime::SecretStore;
 pub struct AppConfig {
     pub openai_api_key: String,
     pub openrouter_api_key: String,
+    pub groq_api_key: String,
+    pub perplexity_api_key: String,
     pub helicone_api_key: String,
     pub workos_api_key: String,
     pub workos_client_id: String,
@@ -26,6 +28,14 @@ impl AppConfig {
         let openrouter_api_key = secret_store
             .get("OPENROUTER_API_KEY")
             .ok_or_else(|| anyhow!("OPENROUTER_API_KEY not found"))?;
+
+        let groq_api_key = secret_store
+            .get("GROQ_API_KEY")
+            .ok_or_else(|| anyhow!("GROQ_API_KEY not found"))?;
+
+        let perplexity_api_key = secret_store
+            .get("PERPLEXITY_API_KEY")
+            .ok_or_else(|| anyhow!("PERPLEXITY_API_KEY not found"))?;
 
         let helicone_api_key = secret_store
             .get("HELICONE_API_KEY")
@@ -66,6 +76,8 @@ impl AppConfig {
         Ok(AppConfig {
             openai_api_key,
             openrouter_api_key,
+            groq_api_key,
+            perplexity_api_key,
             helicone_api_key,
             workos_api_key,
             workos_client_id,
