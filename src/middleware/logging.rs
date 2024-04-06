@@ -5,7 +5,7 @@ use actix_web::{
 use futures_util::future::LocalBoxFuture;
 use std::future::{ready, Ready};
 use std::time::Instant;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 // There are two steps in middleware processing.
 // 1. Middleware initialization, middleware factory gets called with

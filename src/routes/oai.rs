@@ -59,10 +59,10 @@ async fn chat(
     // Truncate messages
     // Include the last x messages, where x is the number of messages we want to keep
     let num_messages: i32 = match request_args.model.as_str() {
-        "gpt-4-vision-preview" => 1,
+        "gpt-4-vision-preview" => 3,
         "google/gemini-pro-vision" => 1,
-        "perplexity/sonar-medium-online" => 1,
-        _ => 10,
+        "perplexity/sonar-medium-online" => 3,
+        _ => 7,
     };
 
     if request_args.messages.len() > num_messages as usize {
