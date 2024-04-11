@@ -1,5 +1,5 @@
 use actix_web::middleware::Logger;
-use actix_web::{get, web};
+use actix_web::web;
 use async_openai::{config::OpenAIConfig, Client};
 use config::AppConfig;
 use shuttle_actix_web::ShuttleActixWeb;
@@ -11,11 +11,6 @@ use std::sync::Arc;
 mod config;
 mod middleware;
 mod routes;
-
-#[get("/")]
-async fn hello_world() -> &'static str {
-    "Hello World!"
-}
 
 #[derive(Clone)]
 struct AppState {
@@ -44,6 +39,11 @@ async fn main(
                 .with_api_base("https://gateway.hconeai.com/api/v1")
                 .with_additional_headers(HashMap::from_iter(
                     vec![
+                        ("X-Title".to_string(), "Invisibility".to_string()),
+                        (
+                            "HTTP-Referer".to_string(),
+                            "https://invisibility.so".to_string(),
+                        ),
                         (
                             "Helicone-Auth".to_string(),
                             format!("Bearer {}", app_config.helicone_api_key),
@@ -113,7 +113,7 @@ async fn main(
     let config = move |cfg: &mut web::ServiceConfig| {
         cfg.service(
             web::scope("")
-                .service(hello_world)
+                .service(routes::hello::hello_world)
                 .service(
                     web::scope("/oai")
                         .service(routes::oai::chat)
