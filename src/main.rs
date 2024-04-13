@@ -19,6 +19,7 @@ struct AppState {
     openrouter_client: Client<OpenAIConfig>,
     groq_client: Client<OpenAIConfig>,
     perplexity_client: Client<OpenAIConfig>,
+    together_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
 }
 
@@ -31,7 +32,16 @@ async fn main(
     let app_state = Arc::new(AppState {
         persist,
         oai_client: Client::with_config(
-            OpenAIConfig::new().with_api_key(app_config.openai_api_key.clone()),
+            OpenAIConfig::new()
+                .with_api_key(app_config.openai_api_key.clone())
+                .with_api_base("https://oai.hconeai.com/v1")
+                .with_additional_headers(HashMap::from_iter(
+                    vec![(
+                        "Helicone-Auth".to_string(),
+                        format!("Bearer {}", app_config.helicone_api_key),
+                    )]
+                    .into_iter(),
+                )),
         ),
         openrouter_client: Client::with_config(
             OpenAIConfig::new()
@@ -95,6 +105,18 @@ async fn main(
                         ),
                         ("Helicone-Target-Provider".to_string(), "Groq".to_string()),
                     ]
+                    .into_iter(),
+                )),
+        ),
+        together_client: Client::with_config(
+            OpenAIConfig::new()
+                .with_api_key(app_config.together_api_key.clone())
+                .with_api_base("https://together.hconeai.com/v1")
+                .with_additional_headers(HashMap::from_iter(
+                    vec![(
+                        "Helicone-Auth".to_string(),
+                        format!("Bearer {}", app_config.helicone_api_key),
+                    )]
                     .into_iter(),
                 )),
         ),
