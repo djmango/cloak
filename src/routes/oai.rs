@@ -46,6 +46,7 @@ async fn chat(
         "groq/mixtral-8x7b-32768" => app_state.groq_client.clone(),
         "perplexity/sonar-medium-online" => app_state.perplexity_client.clone(),
         "perplexity/mixtral-8x7b-instruct" => app_state.perplexity_client.clone(),
+        "databricks/dbrx-instruct" => app_state.together_client.clone(),
         _ => app_state.oai_client.clone(),
     };
 

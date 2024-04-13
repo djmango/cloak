@@ -7,6 +7,7 @@ pub struct AppConfig {
     pub openrouter_api_key: String,
     pub groq_api_key: String,
     pub perplexity_api_key: String,
+    pub together_api_key: String,
     pub helicone_api_key: String,
     pub workos_api_key: String,
     pub workos_client_id: String,
@@ -36,6 +37,10 @@ impl AppConfig {
         let perplexity_api_key = secret_store
             .get("PERPLEXITY_API_KEY")
             .ok_or_else(|| anyhow!("PERPLEXITY_API_KEY not found"))?;
+
+        let together_api_key = secret_store
+            .get("TOGETHER_API_KEY")
+            .ok_or_else(|| anyhow!("TOGETHER_API_KEY not found"))?;
 
         let helicone_api_key = secret_store
             .get("HELICONE_API_KEY")
@@ -78,6 +83,7 @@ impl AppConfig {
             openrouter_api_key,
             groq_api_key,
             perplexity_api_key,
+            together_api_key,
             helicone_api_key,
             workos_api_key,
             workos_client_id,
