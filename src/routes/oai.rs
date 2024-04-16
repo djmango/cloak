@@ -73,6 +73,13 @@ async fn chat(
         _ => request_args.model,
     };
 
+    // Set fallback models
+    request_args.models = Some(vec![
+        "gpt-4-turbo-2024-04-09".to_string(),
+        "openrouter/anthropic/claude-3-sonnet".to_string(),
+        "openrouter/anthropic/claude-3-haiku".to_string(),
+    ]);
+
     info!("Creating chat completion stream");
     let response = client
         .chat()
