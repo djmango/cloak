@@ -15,11 +15,7 @@ mod routes;
 #[derive(Clone)]
 struct AppState {
     persist: PersistInstance,
-    oai_client: Client<OpenAIConfig>,
-    openrouter_client: Client<OpenAIConfig>,
-    groq_client: Client<OpenAIConfig>,
-    perplexity_client: Client<OpenAIConfig>,
-    together_client: Client<OpenAIConfig>,
+    keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
 }
 
@@ -31,22 +27,10 @@ async fn main(
     let app_config = Arc::new(AppConfig::new(&secret_store).unwrap());
     let app_state = Arc::new(AppState {
         persist,
-        oai_client: Client::with_config(
+        keywords_client: Client::with_config(
             OpenAIConfig::new()
-                .with_api_key(app_config.openai_api_key.clone())
-                .with_api_base("https://oai.hconeai.com/v1")
-                .with_additional_headers(HashMap::from_iter(
-                    vec![(
-                        "Helicone-Auth".to_string(),
-                        format!("Bearer {}", app_config.helicone_api_key),
-                    )]
-                    .into_iter(),
-                )),
-        ),
-        openrouter_client: Client::with_config(
-            OpenAIConfig::new()
-                .with_api_key(app_config.openrouter_api_key.clone())
-                .with_api_base("https://gateway.hconeai.com/api/v1")
+                .with_api_key(app_config.keywords_api_key.clone())
+                .with_api_base("https://api.keywordsai.co/api")
                 .with_additional_headers(HashMap::from_iter(
                     vec![
                         ("X-Title".to_string(), "Invisibility".to_string()),
@@ -54,69 +38,7 @@ async fn main(
                             "HTTP-Referer".to_string(),
                             "https://invisibility.so".to_string(),
                         ),
-                        (
-                            "Helicone-Auth".to_string(),
-                            format!("Bearer {}", app_config.helicone_api_key),
-                        ),
-                        (
-                            "Helicone-Target-Url".to_string(),
-                            "https://openrouter.ai".to_string(),
-                        ),
-                        (
-                            "Helicone-Target-Provider".to_string(),
-                            "OpenRouter".to_string(),
-                        ),
                     ]
-                    .into_iter(),
-                )),
-        ),
-        groq_client: Client::with_config(
-            OpenAIConfig::new()
-                .with_api_key(app_config.groq_api_key.clone())
-                .with_api_base("https://gateway.hconeai.com/openai/v1")
-                .with_additional_headers(HashMap::from_iter(
-                    vec![
-                        (
-                            "Helicone-Auth".to_string(),
-                            format!("Bearer {}", app_config.helicone_api_key),
-                        ),
-                        (
-                            "Helicone-Target-Url".to_string(),
-                            "https://api.groq.com".to_string(),
-                        ),
-                        ("Helicone-Target-Provider".to_string(), "Groq".to_string()),
-                    ]
-                    .into_iter(),
-                )),
-        ),
-        perplexity_client: Client::with_config(
-            OpenAIConfig::new()
-                .with_api_key(app_config.perplexity_api_key.clone())
-                .with_api_base("https://gateway.hconeai.com")
-                .with_additional_headers(HashMap::from_iter(
-                    vec![
-                        (
-                            "Helicone-Auth".to_string(),
-                            format!("Bearer {}", app_config.helicone_api_key),
-                        ),
-                        (
-                            "Helicone-Target-Url".to_string(),
-                            "https://api.perplexity.ai".to_string(),
-                        ),
-                        ("Helicone-Target-Provider".to_string(), "Groq".to_string()),
-                    ]
-                    .into_iter(),
-                )),
-        ),
-        together_client: Client::with_config(
-            OpenAIConfig::new()
-                .with_api_key(app_config.together_api_key.clone())
-                .with_api_base("https://together.hconeai.com/v1")
-                .with_additional_headers(HashMap::from_iter(
-                    vec![(
-                        "Helicone-Auth".to_string(),
-                        format!("Bearer {}", app_config.helicone_api_key),
-                    )]
                     .into_iter(),
                 )),
         ),
