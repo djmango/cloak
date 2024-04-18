@@ -60,9 +60,16 @@ pub struct Claims {
 }
 
 /// A redirect to the WorkOS login page
-#[get("/workos/login")]
+#[get("/login")]
 async fn login() -> Result<impl Responder, Error> {
-    let url = "https://authkit.invisibility.so/";
+    let url = "https://authkit.i.inc/";
+    Ok(web::Redirect::to(url))
+}
+
+/// A redirect to the WorkOS login page
+#[get("/signup")]
+async fn signup() -> Result<impl Responder, Error> {
+    let url = "https://authkit.i.inc/sign-up";
     Ok(web::Redirect::to(url))
 }
 

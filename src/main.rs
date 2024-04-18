@@ -5,7 +5,6 @@ use config::AppConfig;
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 mod config;
@@ -30,17 +29,7 @@ async fn main(
         keywords_client: Client::with_config(
             OpenAIConfig::new()
                 .with_api_key(app_config.keywords_api_key.clone())
-                .with_api_base("https://api.keywordsai.co/api")
-                .with_additional_headers(HashMap::from_iter(
-                    vec![
-                        ("X-Title".to_string(), "Invisibility".to_string()),
-                        (
-                            "HTTP-Referer".to_string(),
-                            "https://invisibility.so".to_string(),
-                        ),
-                    ]
-                    .into_iter(),
-                )),
+                .with_api_base("https://api.keywordsai.co/api"),
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
@@ -68,7 +57,8 @@ async fn main(
                         .service(routes::auth::auth_callback)
                         .service(routes::auth::get_user)
                         .service(routes::auth::login)
-                        .service(routes::auth::refresh_token),
+                        .service(routes::auth::refresh_token)
+                        .service(routes::auth::signup),
                 )
                 .service(
                     web::scope("/pay")
