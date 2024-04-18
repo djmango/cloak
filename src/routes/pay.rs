@@ -141,7 +141,10 @@ async fn checkout(
 
     // Success URL is hardcoded, session id is provided by Stripe and user email is passed as a query parameter for matching
     let user_email = checkout_request.email.as_str();
-    let success_url = format!("https://cloak.invisibility.so/pay/payment_success?session_id={{CHECKOUT_SESSION_ID}}&user_email={}", user_email);
+    let success_url = format!(
+        "https://cloak.i.inc/pay/payment_success?session_id={{CHECKOUT_SESSION_ID}}&user_email={}",
+        user_email
+    );
 
     // Check if a user invite exists for the email
     let user_invite = app_state
@@ -309,7 +312,7 @@ async fn manage(
         &app_state.stripe_client,
         CreateBillingPortalSession {
             customer: customer.id.clone(),
-            return_url: Some("https://invisibility.so/"),
+            return_url: Some("https://i.inc/"),
             configuration: Default::default(),
             flow_data: Default::default(),
             expand: &[],
