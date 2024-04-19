@@ -119,6 +119,28 @@ struct CheckoutRequest {
     email: String,
 }
 
+enum PriceOption {
+    USD20,
+    USD29,
+}
+
+impl PriceOption {
+    fn get_price_id(&self) -> String {
+        match self {
+            PriceOption::USD20 => "price_1P7M3gHQqwgWa5gANnfRYvQM".to_string(),
+            PriceOption::USD29 => "price_1OsHQoHQqwgWa5gAAEIA1AMu".to_string(),
+        }
+    }
+
+    fn get_price_readable(&self) -> String {
+        match self {
+            PriceOption::USD20 => "$20",
+            PriceOption::USD29 => "$29",
+        }
+        .to_string()
+    }
+}
+
 #[get("/checkout")]
 async fn checkout(
     app_state: web::Data<Arc<AppState>>,
@@ -127,9 +149,18 @@ async fn checkout(
     let checkout_request = query.into_inner();
     info!("Checkout request for email: {}", checkout_request.email);
 
+    // A/B test price options
+    let price_options = [PriceOption::USD20, PriceOption::USD29];
+    let selected_price = price_options.choose(&mut rand::thread_rng()).unwrap();
+    info!(
+        "Selected price of {} for email: {}",
+        selected_price.get_price_readable(),
+        checkout_request.email
+    );
+
     // Price is hardcoded
     let line_item = CreateCheckoutSessionLineItems {
-        price: Some("price_1OsHQoHQqwgWa5gAAEIA1AMu".into()),
+        price: Some(selected_price.get_price_id()),
         quantity: Some(1),
         ..Default::default()
     };
@@ -139,7 +170,6 @@ async fn checkout(
     let selected_trial_period = *trial_period_options
         .choose(&mut rand::thread_rng())
         .unwrap();
-
     info!(
         "Selected trial period of {} days for email: {}",
         selected_trial_period, checkout_request.email
