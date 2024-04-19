@@ -67,17 +67,16 @@ async fn chat(
             "openrouter/mistralai/mixtral-8x7b-instruct".to_string()
         }
         "perplexity/sonar-medium-online" => "openrouter/perplexity/sonar-medium-online".to_string(),
-        "anthropic/claude-3-opus:beta" => "openrouter/anthropic/claude-3-opus".to_string(),
-        "anthropic/claude-3-sonnet:beta" => "openrouter/anthropic/claude-3-sonnet".to_string(),
-        "anthropic/claude-3-haiku:beta" => "openrouter/anthropic/claude-3-haiku".to_string(),
+        "anthropic/claude-3-opus:beta" => "claude-3-opus-20240229".to_string(),
+        "anthropic/claude-3-sonnet:beta" => "claude-3-sonnet-20240229".to_string(),
+        "anthropic/claude-3-haiku:beta" => "claude-3-haiku-20240307".to_string(),
         _ => request_args.model,
     };
 
     // Set fallback models
     request_args.models = Some(vec![
         "gpt-4-turbo-2024-04-09".to_string(),
-        "openrouter/anthropic/claude-3-sonnet".to_string(),
-        "openrouter/anthropic/claude-3-haiku".to_string(),
+        "claude-3-sonnet-20240229".to_string(),
     ]);
 
     info!("Creating chat completion stream");
