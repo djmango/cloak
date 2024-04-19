@@ -2,6 +2,7 @@ use actix_web::web::Json;
 use actix_web::{get, web, Responder};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -133,9 +134,20 @@ async fn checkout(
         ..Default::default()
     };
 
+    // A/B test trial period options
+    let trial_period_options = [3, 7, 10, 14];
+    let selected_trial_period = *trial_period_options
+        .choose(&mut rand::thread_rng())
+        .unwrap();
+
+    info!(
+        "Selected trial period of {} days for email: {}",
+        selected_trial_period, checkout_request.email
+    );
+
     // If a user invite is found, search for the promotion code and retrieve its ID
     let subscription_data = stripe::CreateCheckoutSessionSubscriptionData {
-        trial_period_days: Some(1),
+        trial_period_days: Some(selected_trial_period),
         ..Default::default()
     };
 
