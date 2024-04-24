@@ -277,7 +277,7 @@ dependencies = [
 [[package]]
 name = "async-openai"
 version = "0.20.0"
-source = "git+https://github.com/djmango/async-openai.git?branch=master#69a2fb1484bd8aba646456d6387b06febe084d1c"
+source = "git+https://github.com/djmango/async-openai.git?branch=master#298704710cc7f0a3f3f9ceb5e9157582dbb65726"
 dependencies = [
  "async-convert",
  "backoff",
@@ -1474,6 +1474,7 @@ dependencies = [
  "futures",
  "futures-util",
  "jsonwebtoken",
+ "maplit",
  "once_cell",
  "rand 0.8.5",
  "reqwest 0.11.27",
@@ -1601,6 +1602,12 @@ name = "log"
 version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
+
+[[package]]
+name = "maplit"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
 name = "matchers"
@@ -2376,9 +2383,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecd36cc4259e3e4514335c4a138c6b43171a8d61d8f5c9348f9fc7529416f247"
+checksum = "beb461507cee2c2ff151784c52762cf4d9ff6a61f3e80968600ed24fa837fa54"
 
 [[package]]
 name = "rustls-webpki"
@@ -3845,9 +3852,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "525b4ec142c6b68a2d10f01f7bbf6755599ca3f81ea53b8431b7dd348f5fdb2d"
+checksum = "63381fa6624bf92130a6b87c0d07380116f80b565c42cf0d754136f0238359ef"
 
 [[package]]
 name = "zstd"

@@ -1,21 +1,24 @@
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
-use async_openai::types::CreateChatCompletionRequest;
+use async_openai::types::{ChatCustomerCredentialsValue, CreateChatCompletionRequest};
 use async_openai::Client;
 use bytes::Bytes;
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
+use maplit::hashmap;
 use serde_json::to_string;
 use std::sync::Arc;
 use tracing::{error, info};
 
+use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::AppState;
 
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
+    app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
@@ -66,18 +69,34 @@ async fn chat(
         "perplexity/mixtral-8x7b-instruct" => {
             "openrouter/mistralai/mixtral-8x7b-instruct".to_string()
         }
-        "perplexity/sonar-medium-online" => "openrouter/perplexity/sonar-medium-online".to_string(),
+        "perplexity/sonar-medium-online" => "perplexity/sonar-medium-online".to_string(),
         "anthropic/claude-3-opus:beta" => "claude-3-opus-20240229".to_string(),
         "anthropic/claude-3-sonnet:beta" => "claude-3-sonnet-20240229".to_string(),
         "anthropic/claude-3-haiku:beta" => "claude-3-haiku-20240307".to_string(),
         _ => request_args.model,
     };
 
+    // Route 30% of requests to the bedrock model
+    if request_args.model == "claude-3-opus-20240229" && rand::random::<f64>() < 0.3 {
+        request_args.model = "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string();
+    }
+
     // Set fallback models
     request_args.models = Some(vec![
         "gpt-4-turbo-2024-04-09".to_string(),
         "claude-3-sonnet-20240229".to_string(),
     ]);
+
+    // If using bedrock add the customer credentials
+    if request_args.model.starts_with("bedrock/") {
+        request_args.customer_credentials = Some(hashmap! {
+            "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string() => ChatCustomerCredentialsValue::HashMap(hashmap! {
+                "aws_access_key_id".to_string() => app_config.aws_access_key_id.clone(),
+                "aws_secret_access_key".to_string() => app_config.aws_secret_access_key.clone(),
+                "aws_region_name".to_string() => app_config.aws_region.clone(),
+            }),
+        });
+    }
 
     info!("Creating chat completion stream");
     let response = client
