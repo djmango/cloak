@@ -76,8 +76,8 @@ async fn chat(
         _ => request_args.model,
     };
 
-    // Route 30% of requests to the bedrock model
-    if request_args.model == "claude-3-opus-20240229" && rand::random::<f64>() < 0.3 {
+    // Route Opus requests to the bedrock model
+    if request_args.model == "claude-3-opus-20240229" {
         request_args.model = "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string();
     }
 
