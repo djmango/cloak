@@ -90,7 +90,7 @@ async fn chat(
     // If using bedrock add the customer credentials
     if request_args.model.starts_with("bedrock/") {
         request_args.customer_credentials = Some(hashmap! {
-            "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string() => ChatCustomerCredentialsValue::HashMap(hashmap! {
+            "bedrock".to_string() => ChatCustomerCredentialsValue::HashMap(hashmap! {
                 "aws_access_key_id".to_string() => app_config.aws_access_key_id.clone(),
                 "aws_secret_access_key".to_string() => app_config.aws_secret_access_key.clone(),
                 "aws_region_name".to_string() => app_config.aws_region.clone(),
