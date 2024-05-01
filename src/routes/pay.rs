@@ -55,6 +55,34 @@ async fn invite(
     }
 }
 
+#[get("/list_invites")]
+async fn list_invites(
+    app_state: web::Data<Arc<AppState>>,
+) -> Result<impl Responder, actix_web::Error> {
+    let keys: Result<Vec<String>, anyhow::Error> = app_state
+        .persist
+        .list()
+        .map_err(|e| anyhow!("Failed to list user invites: {:?}", e));
+
+    match keys {
+        Ok(keys) => {
+            let mut user_invites: Vec<UserInvite> = Vec::new();
+            for key in keys {
+                if key.starts_with("user_invite:") {
+                    let user_invite = app_state.persist.load::<UserInvite>(&key).unwrap();
+
+                    user_invites.push(user_invite);
+                }
+            }
+            Ok(Json(user_invites))
+        }
+        Err(e) => {
+            error!("Failed to list user invites: {:?}", e);
+            Err(actix_web::error::ErrorInternalServerError(e.to_string()))
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct PaymentSuccessRequest {
     session_id: String,
