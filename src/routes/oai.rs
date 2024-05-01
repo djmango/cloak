@@ -1,13 +1,13 @@
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
-use async_openai::types::{ChatCustomerCredentialsValue, CreateChatCompletionRequest};
+use async_openai::types::CreateChatCompletionRequest;
 use async_openai::Client;
 use bytes::Bytes;
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
-use maplit::hashmap;
 use serde_json::to_string;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info};
 
@@ -89,13 +89,23 @@ async fn chat(
 
     // If using bedrock add the customer credentials
     if request_args.model.starts_with("bedrock/") {
-        request_args.customer_credentials = Some(hashmap! {
-            "bedrock".to_string() => ChatCustomerCredentialsValue::HashMap(hashmap! {
-                "aws_access_key_id".to_string() => app_config.aws_access_key_id.clone(),
-                "aws_secret_access_key".to_string() => app_config.aws_secret_access_key.clone(),
-                "aws_region_name".to_string() => app_config.aws_region.clone(),
-            }),
-        });
+        request_args.customer_credentials = Some(HashMap::from_iter(vec![(
+            "bedrock".to_string(),
+            serde_json::Value::Object(serde_json::Map::from_iter(vec![
+                (
+                    "aws_access_key_id".to_string(),
+                    serde_json::Value::String(app_config.aws_access_key_id.clone()),
+                ),
+                (
+                    "aws_secret_access_key".to_string(),
+                    serde_json::Value::String(app_config.aws_secret_access_key.clone()),
+                ),
+                (
+                    "aws_region_name".to_string(),
+                    serde_json::Value::String(app_config.aws_region.clone()),
+                ),
+            ])),
+        )]));
     }
 
     info!("Creating chat completion stream");

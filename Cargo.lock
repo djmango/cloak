@@ -277,7 +277,7 @@ dependencies = [
 [[package]]
 name = "async-openai"
 version = "0.20.0"
-source = "git+https://github.com/djmango/async-openai.git?branch=master#67db1add92ecb156be2f8876933ba30a4e84692e"
+source = "git+https://github.com/djmango/async-openai.git?branch=master#ac762931e2567809f354f571bf0393742e1382b5"
 dependencies = [
  "async-convert",
  "backoff",
@@ -1474,7 +1474,6 @@ dependencies = [
  "futures",
  "futures-util",
  "jsonwebtoken",
- "maplit",
  "once_cell",
  "rand 0.8.5",
  "reqwest 0.11.27",
@@ -1602,12 +1601,6 @@ name = "log"
 version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
-
-[[package]]
-name = "maplit"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
 name = "matchers"
