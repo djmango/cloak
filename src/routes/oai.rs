@@ -82,7 +82,7 @@ async fn chat(
     }
 
     // Set fallback models
-    request_args.models = Some(vec![
+    request_args.fallback = Some(vec![
         "gpt-4-turbo-2024-04-09".to_string(),
         "claude-3-sonnet-20240229".to_string(),
     ]);
