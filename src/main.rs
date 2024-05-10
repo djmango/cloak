@@ -39,7 +39,9 @@ async fn main(
         let cors = Cors::default()
             .allowed_origin("https://i.inc")
             .allowed_origin("https://invisibility.so")
-            .allowed_origin("http://localhost")
+            .allowed_origin_fn(|origin, _req_head| {
+                origin.as_bytes().starts_with(b"http://localhost:")
+            })
             .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".i.inc"))
             .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".invisibility.so"))
             .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".localhost"))
