@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::web;
 use async_openai::{config::OpenAIConfig, Client};
@@ -34,16 +35,16 @@ async fn main(
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
 
-    let _guard = sentry::init((
-        app_config.sentry_dsn.clone(),
-        sentry::ClientOptions {
-            release: sentry::release_name!(),
-            traces_sample_rate: 0.2,
-            ..Default::default()
-        },
-    ));
-
     let config = move |cfg: &mut web::ServiceConfig| {
+        let cors = Cors::default()
+            .allowed_origin("https://i.inc")
+            .allowed_origin("https://invisibility.so")
+            .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".i.inc"))
+            .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".invisibility.so"))
+            .allow_any_method()
+            .allow_any_header()
+            .max_age(3600);
+
         cfg.service(
             web::scope("")
                 .service(routes::hello::hello_world)
@@ -74,7 +75,7 @@ async fn main(
                 })
                 .wrap(middleware::logging::LoggingMiddleware)
                 .wrap(Logger::new("%{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T"))
-                .wrap(sentry_actix::Sentry::new())
+                .wrap(cors)
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(app_config.clone())),
         );
