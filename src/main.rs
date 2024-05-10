@@ -36,19 +36,6 @@ async fn main(
     });
 
     let config = move |cfg: &mut web::ServiceConfig| {
-        let cors = Cors::default()
-            .allowed_origin("https://i.inc")
-            .allowed_origin("https://invisibility.so")
-            .allowed_origin_fn(|origin, _req_head| {
-                origin.as_bytes().starts_with(b"http://localhost:")
-            })
-            .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".i.inc"))
-            .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".invisibility.so"))
-            .allowed_origin_fn(|origin, _req_head| origin.as_bytes().ends_with(b".localhost"))
-            .allow_any_method()
-            .allow_any_header()
-            .max_age(3600);
-
         cfg.service(
             web::scope("")
                 .service(routes::hello::hello_world)
@@ -79,7 +66,7 @@ async fn main(
                 })
                 .wrap(middleware::logging::LoggingMiddleware)
                 .wrap(Logger::new("%{r}a \"%r\" %s %b \"%{User-Agent}i\" %U %T"))
-                .wrap(cors)
+                .wrap(Cors::permissive())
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(app_config.clone())),
         );
