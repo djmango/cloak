@@ -1,7 +1,11 @@
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
-use async_openai::types::CreateChatCompletionRequest;
+use async_openai::types::{
+    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
+    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
+    CreateChatCompletionRequest,
+};
 use async_openai::Client;
 use bytes::Bytes;
 use futures::stream::StreamExt;
@@ -59,6 +63,53 @@ async fn chat(
         request_args.messages = request_args
             .messages
             .split_off(request_args.messages.len() - num_messages as usize);
+    }
+
+    // For each message, ensure the content is not empty, put a - at the start of the message if it's empty
+    for message in &mut request_args.messages {
+        // info!("Message type: {:?}", message);
+        match message {
+            ChatCompletionRequestMessage::User(user_message) => match &mut user_message.content {
+                ChatCompletionRequestUserMessageContent::Text(text) => {
+                    info!("User message: {:?}", text);
+                    if text.trim().is_empty() {
+                        *text = "-".to_string();
+                        info!("Fixed empty user message");
+                    }
+                }
+                ChatCompletionRequestUserMessageContent::Array(array) => {
+                    info!("User message array: {:?}", array);
+                    if array.iter().all(|part| match part {
+                        ChatCompletionRequestMessageContentPart::Text(text) => {
+                            text.text.trim().is_empty()
+                        }
+                        _ => false,
+                    }) {
+                        array.clear();
+                        array.push(
+                            ChatCompletionRequestMessageContentPartText {
+                                r#type: "text".to_string(),
+                                text: "-".to_string(),
+                            }
+                            .into(),
+                        );
+                        info!("Fixed empty user message via array");
+                    }
+                }
+            },
+            ChatCompletionRequestMessage::Assistant(assistant_message) => {
+                info!("Assistant message: {:?}", assistant_message);
+                if let Some(content) = &assistant_message.content {
+                    if content.trim().is_empty() {
+                        assistant_message.content = Some("-".to_string());
+                        info!("Fixed empty assistant message");
+                    }
+                }
+            }
+            _ => {
+                info!("Message type: {:?}", message);
+            }
+        }
     }
 
     // Max tokens as 2048
