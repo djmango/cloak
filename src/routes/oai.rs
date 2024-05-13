@@ -132,6 +132,11 @@ async fn chat(
         request_args.model = "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string();
     }
 
+    // Route GPT-4o requests to the openai model
+    if request_args.model == "openrouter/openai/gpt-4o" {
+        request_args.model = "gpt-4o".to_string();
+    }
+
     // Set fallback models
     request_args.fallback = Some(vec![
         "gpt-4-turbo-2024-04-09".to_string(),
