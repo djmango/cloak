@@ -55,7 +55,7 @@ async fn main(
                 .service(
                     web::scope("/pay")
                         .service(routes::pay::checkout)
-                        .service(routes::pay::invite)
+                        .service(routes::pay::get_invite)
                         .service(routes::pay::list_invites)
                         .service(routes::pay::manage)
                         .service(routes::pay::paid)

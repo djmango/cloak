@@ -27,7 +27,7 @@ struct UserInvite {
 }
 
 #[get("/invite")]
-async fn invite(
+async fn get_invite(
     app_state: web::Data<Arc<AppState>>,
     query: web::Query<UserInvite>,
 ) -> Result<impl Responder, actix_web::Error> {
@@ -55,9 +55,15 @@ async fn invite(
     }
 }
 
+#[derive(Deserialize)]
+struct InviteQuery {
+    code: Option<String>,
+}
+
 #[get("/list_invites")]
 async fn list_invites(
     app_state: web::Data<Arc<AppState>>,
+    query: web::Query<InviteQuery>,
 ) -> Result<impl Responder, actix_web::Error> {
     let keys: Result<Vec<String>, anyhow::Error> = app_state
         .persist
@@ -69,12 +75,22 @@ async fn list_invites(
             let mut user_invites: Vec<UserInvite> = Vec::new();
             for key in keys {
                 if key.starts_with("user_invite:") {
-                    let user_invite = app_state.persist.load::<UserInvite>(&key).unwrap();
-
-                    user_invites.push(user_invite);
+                    if let Ok(user_invite) = app_state.persist.load::<UserInvite>(&key) {
+                        user_invites.push(user_invite);
+                    }
                 }
             }
-            Ok(Json(user_invites))
+
+            if let Some(ref code) = query.code {
+                let filtered_invites: Vec<UserInvite> = user_invites
+                    .into_iter()
+                    .filter(|invite| invite.code == *code)
+                    .collect();
+
+                Ok(web::Json(filtered_invites))
+            } else {
+                Ok(web::Json(user_invites))
+            }
         }
         Err(e) => {
             error!("Failed to list user invites: {:?}", e);
