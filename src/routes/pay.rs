@@ -179,7 +179,7 @@ async fn checkout(
 
     // If a user invite is found, search for the promotion code and retrieve its ID
     let subscription_data = stripe::CreateCheckoutSessionSubscriptionData {
-        trial_period_days: Some(10),
+        // trial_period_days: Some(10),
         ..Default::default()
     };
 
@@ -191,33 +191,49 @@ async fn checkout(
     );
 
     // Check if a user invite exists for the email
-    let user_invite = app_state
-        .persist
-        .load::<UserInvite>(&format!("user_invite:{}", checkout_request.email));
+    // let user_invite = app_state
+    //     .persist
+    //     .load::<UserInvite>(&format!("user_invite:{}", checkout_request.email));
 
     // If a user invite is found, search for the promotion code and retrieve its ID
-    let discounts: Option<Vec<CreateCheckoutSessionDiscounts>> = match user_invite {
-        Ok(user_invite) => {
-            info!(
-                "User invite found: {:?}, {:?}",
-                user_invite.email, user_invite.code
-            );
+    // let discounts: Option<Vec<CreateCheckoutSessionDiscounts>> = match user_invite {
+    //     Ok(user_invite) => {
+    //         info!(
+    //             "User invite found: {:?}, {:?}",
+    //             user_invite.email, user_invite.code
+    //         );
 
-            Some(vec![CreateCheckoutSessionDiscounts {
-                coupon: Some("jOQCrk1k".into()),
-                ..Default::default()
-            }])
+    //         Some(vec![
+    //             // $10 off once
+    //             CreateCheckoutSessionDiscounts {
+    //                 coupon: Some("jOQCrk1k".into()),
+    //                 ..Default::default()
+    //             },
+    //             // 10$ off every month
+    //             CreateCheckoutSessionDiscounts {
+    //                 coupon: Some("1UqUrexm".into()),
+    //                 ..Default::default()
+    //             },
+    //         ])
+    //     }
+    //     _ => {
+    //         warn!(
+    //             "User invite not found for email: {}",
+    //             checkout_request.email
+    //         );
+    //         // None
+    //         // Give a default discount
+    //         Some(vec![CreateCheckoutSessionDiscounts {
+    //             coupon: Some("1UqUrexm".into()),
+    //             ..Default::default()
+    //         }])
+    //     }
+    // };
 
-            // Search for the promotion code by listing all active promotion codes
-        }
-        _ => {
-            warn!(
-                "User invite not found for email: {}",
-                checkout_request.email
-            );
-            None
-        }
-    };
+    let discounts = Some(vec![CreateCheckoutSessionDiscounts {
+        coupon: Some("1UqUrexm".into()),
+        ..Default::default()
+    }]);
 
     // Grab existing users in stripe with the same email, handle gracefully
     let customer =
