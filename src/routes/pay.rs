@@ -179,7 +179,7 @@ async fn checkout(
 
     // If a user invite is found, search for the promotion code and retrieve its ID
     let subscription_data = stripe::CreateCheckoutSessionSubscriptionData {
-        // trial_period_days: Some(10),
+        trial_period_days: Some(1),
         ..Default::default()
     };
 
