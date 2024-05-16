@@ -71,21 +71,24 @@ async fn chat(
         match message {
             ChatCompletionRequestMessage::User(user_message) => match &mut user_message.content {
                 ChatCompletionRequestUserMessageContent::Text(text) => {
-                    info!("User message: {:?}", text);
                     if text.trim().is_empty() {
                         *text = "-".to_string();
                         info!("Fixed empty user message");
                     }
                 }
                 ChatCompletionRequestUserMessageContent::Array(array) => {
-                    info!("User message array: {:?}", array);
                     if array.iter().all(|part| match part {
                         ChatCompletionRequestMessageContentPart::Text(text) => {
                             text.text.trim().is_empty()
                         }
-                        _ => false,
+                        _ => {
+                            // Consider non-text parts as "effectively empty" for this check
+                            info!("Non-text part in array");
+                            // print the part for debugging
+                            info!("{:?}", part);
+                            true
+                        }
                     }) {
-                        array.clear();
                         array.push(
                             ChatCompletionRequestMessageContentPartText {
                                 r#type: "text".to_string(),
@@ -133,9 +136,9 @@ async fn chat(
     }
 
     // Route GPT-4o requests to the openai model
-    if request_args.model == "openrouter/openai/gpt-4o" {
-        request_args.model = "gpt-4o".to_string();
-    }
+    // if request_args.model == "openrouter/openai/gpt-4o" {
+    //     request_args.model = "gpt-4o".to_string();
+    // }
 
     // Set fallback models
     request_args.fallback = Some(vec![
