@@ -2,6 +2,7 @@ use actix_web::web::Json;
 use actix_web::{get, web, Responder};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -26,9 +27,16 @@ struct UserInvite {
     created_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct LoopsContact {
+    email: String,
+    source: String,
+}
+
 #[get("/invite")]
 async fn get_invite(
     app_state: web::Data<Arc<AppState>>,
+    app_config: web::Data<Arc<AppConfig>>,
     query: web::Query<UserInvite>,
 ) -> Result<impl Responder, actix_web::Error> {
     let mut user_invite = query.into_inner();
@@ -46,6 +54,37 @@ async fn get_invite(
     match result {
         Ok(_) => {
             info!("User invite stored successfully: {:?}", user_invite.email);
+
+            // Send the user invite data to Loops asynchronously
+            let loops_contact = LoopsContact {
+                email: user_invite.email.clone(),
+                source: "invite".to_string(),
+            };
+            let loops_api_key = app_config.loops_api_key.clone();
+            let url = "https://app.loops.so/api/v1/contacts/create".to_string();
+
+            let send_future = async move {
+                let response = Client::new()
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", loops_api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&loops_contact)
+                    .send()
+                    .await;
+
+                match response {
+                    Ok(response) => {
+                        info!("Loops response: {:?}", response);
+                    }
+                    Err(e) => {
+                        error!("Failed to send user invite to Loops: {:?}", e);
+                    }
+                }
+            };
+
+            // Spawn a new task to send the request to Loops asynchronously
+            actix_web::rt::spawn(send_future);
+
             Ok("User invite stored successfully")
         }
         Err(e) => {

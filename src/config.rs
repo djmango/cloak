@@ -11,7 +11,7 @@ pub struct AppConfig {
     pub aws_access_key_id: String,
     pub aws_secret_access_key: String,
     pub stripe_secret_key: String,
-    pub sentry_dsn: String,
+    pub loops_api_key: String,
 }
 
 impl AppConfig {
@@ -49,9 +49,9 @@ impl AppConfig {
             .get("STRIPE_SECRET_KEY")
             .ok_or_else(|| anyhow!("STRIPE_SECRET_KEY not found"))?;
 
-        let sentry_dsn = secret_store
-            .get("SENTRY_DSN")
-            .ok_or_else(|| anyhow!("SENTRY_DSN not found"))?;
+        let loops_api_key = secret_store
+            .get("LOOPS_API_KEY")
+            .ok_or_else(|| anyhow!("LOOPS_API_KEY not found"))?;
 
         Ok(AppConfig {
             keywords_api_key,
@@ -62,7 +62,7 @@ impl AppConfig {
             aws_access_key_id,
             aws_secret_access_key,
             stripe_secret_key,
-            sentry_dsn,
+            loops_api_key,
         })
     }
 }
