@@ -3,6 +3,7 @@ use shuttle_runtime::SecretStore;
 
 #[derive(Clone)]
 pub struct AppConfig {
+    pub db_connection_uri: String,
     pub keywords_api_key: String,
     pub workos_api_key: String,
     pub workos_client_id: String,
@@ -17,6 +18,10 @@ pub struct AppConfig {
 impl AppConfig {
     // Asynchronous factory function for creating AppConfig
     pub fn new(secret_store: &SecretStore) -> Result<Self, anyhow::Error> {
+        let db_connection_string = secret_store
+            .get("DB_CONNECTION_URI")
+            .ok_or_else(|| anyhow!("DB_CONNECTION_STRING not found"))?;
+
         let keywords_api_key = secret_store
             .get("KEYWORDS_API_KEY")
             .ok_or_else(|| anyhow!("KEYWORDS_API_KEY not found"))?;
@@ -54,6 +59,7 @@ impl AppConfig {
             .ok_or_else(|| anyhow!("LOOPS_API_KEY not found"))?;
 
         Ok(AppConfig {
+            db_connection_uri: db_connection_string,
             keywords_api_key,
             workos_api_key,
             workos_client_id,

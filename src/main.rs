@@ -6,15 +6,18 @@ use config::AppConfig;
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
+use sqlx::postgres::PgPool;
 use std::sync::Arc;
 
 mod config;
 mod middleware;
+mod models;
 mod routes;
 
 #[derive(Clone)]
 struct AppState {
     persist: PersistInstance,
+    pool: PgPool,
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
 }
@@ -27,6 +30,9 @@ async fn main(
     let app_config = Arc::new(AppConfig::new(&secret_store).unwrap());
     let app_state = Arc::new(AppState {
         persist,
+        pool: PgPool::connect(&app_config.db_connection_uri)
+            .await
+            .unwrap(),
         keywords_client: Client::with_config(
             OpenAIConfig::new()
                 .with_api_key(app_config.keywords_api_key.clone())

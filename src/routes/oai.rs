@@ -44,6 +44,32 @@ async fn chat(
     // If we want to use claude, use the openrouter client, otherwise use the standard openai client
     let client: Client<OpenAIConfig> = app_state.keywords_client.clone();
 
+    // Max tokens as 2048
+    request_args.max_tokens = Some(2048);
+
+    // Conform the model id to what's expected by the provider
+    request_args.model = match request_args.model.as_str() {
+        "perplexity/mixtral-8x7b-instruct" => {
+            "openrouter/mistralai/mixtral-8x7b-instruct".to_string()
+        }
+        "perplexity/sonar-medium-online" => {
+            "openrouter/perplexity/llama-3-sonar-large-32k-online".to_string()
+        }
+        "anthropic/claude-3-opus:beta" => {
+            "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string()
+        }
+        "claude-3-opus-20240229" => "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string(),
+        "anthropic/claude-3-sonnet:beta" => "claude-3-sonnet-20240229".to_string(),
+        "anthropic/claude-3-haiku:beta" => "claude-3-haiku-20240307".to_string(),
+        _ => request_args.model,
+    };
+
+    // Set fallback models
+    request_args.fallback = Some(vec![
+        "gpt-4-turbo-2024-04-09".to_string(),
+        "claude-3-sonnet-20240229".to_string(),
+    ]);
+
     // Ensure we have at least one message, else return an error
     if request_args.messages.is_empty() {
         return Err(actix_web::error::ErrorBadRequest(
@@ -55,7 +81,7 @@ async fn chat(
     // Include the last x messages, where x is the number of messages we want to keep
     let num_messages: i32 = match request_args.model.as_str() {
         "gpt-4-vision-preview" => 3,
-        "perplexity/sonar-medium-online" => 7,
+        "openrouter/perplexity/llama-3-sonar-large-32k-online" => 5,
         _ => 15,
     };
 
@@ -114,37 +140,6 @@ async fn chat(
             }
         }
     }
-
-    // Max tokens as 2048
-    request_args.max_tokens = Some(2048);
-
-    // Conform the model id to what's expected by the provider
-    request_args.model = match request_args.model.as_str() {
-        "perplexity/mixtral-8x7b-instruct" => {
-            "openrouter/mistralai/mixtral-8x7b-instruct".to_string()
-        }
-        "perplexity/sonar-medium-online" => "perplexity/sonar-medium-online".to_string(),
-        "anthropic/claude-3-opus:beta" => "claude-3-opus-20240229".to_string(),
-        "anthropic/claude-3-sonnet:beta" => "claude-3-sonnet-20240229".to_string(),
-        "anthropic/claude-3-haiku:beta" => "claude-3-haiku-20240307".to_string(),
-        _ => request_args.model,
-    };
-
-    // Route Opus requests to the bedrock model
-    if request_args.model == "claude-3-opus-20240229" {
-        request_args.model = "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string();
-    }
-
-    // Route GPT-4o requests to the openai model
-    // if request_args.model == "openrouter/openai/gpt-4o" {
-    //     request_args.model = "gpt-4o".to_string();
-    // }
-
-    // Set fallback models
-    request_args.fallback = Some(vec![
-        "gpt-4-turbo-2024-04-09".to_string(),
-        "claude-3-sonnet-20240229".to_string(),
-    ]);
 
     // If using bedrock add the customer credentials
     if request_args.model.starts_with("bedrock/") {
