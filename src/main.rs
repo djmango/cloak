@@ -55,6 +55,7 @@ async fn main(
                         .service(routes::auth::auth_callback)
                         .service(routes::auth::get_user)
                         .service(routes::auth::get_users)
+                        .service(routes::auth::sync_users)
                         .service(routes::auth::login)
                         .service(routes::auth::refresh_token)
                         .service(routes::auth::signup),

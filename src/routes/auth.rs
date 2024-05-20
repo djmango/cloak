@@ -1,16 +1,18 @@
+use crate::models::user::User;
+use crate::AppState;
+use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 use actix_web::{
     get,
     web::{self, Json},
     Error, Responder,
 };
 use chrono::{DateTime, Utc};
+use futures::future::join_all;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{error, info};
-
-use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 
 #[derive(Deserialize)]
 struct AuthCallbackQuery {
@@ -157,6 +159,48 @@ async fn get_users(
             .await
             .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
         Ok(web::Json(users))
+    } else {
+        Err(actix_web::error::ErrorForbidden("You are not an admin"))
+    }
+}
+
+/// Get all users, async then get_or_create them into the database, and PATCH them all to
+/// KeywordsAI API
+#[get("/users/sync")]
+async fn sync_users(
+    authenticated_user: AuthenticatedUser,
+    app_config: web::Data<Arc<AppConfig>>,
+    app_state: web::Data<Arc<AppState>>,
+) -> Result<Json<Vec<User>>, Error> {
+    if authenticated_user.is_admin() {
+        let workos_users = fetch_all_users(app_config.get_ref().clone())
+            .await
+            .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+        // Collect all futures into a vector
+        let futures = workos_users
+            .into_iter()
+            .map(|workos_user| User::get_or_create_or_update(&app_state.pool, workos_user))
+            .collect::<Vec<_>>();
+
+        // Await all futures and handle results
+        let results = join_all(futures).await;
+
+        // Partition into successes and errors
+        let (users, errors): (Vec<_>, Vec<_>) = results.into_iter().partition(Result::is_ok);
+
+        if !errors.is_empty() {
+            return Err(actix_web::error::ErrorInternalServerError(
+                errors
+                    .into_iter()
+                    .map(Result::unwrap_err)
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ));
+        }
+
+        Ok(web::Json(users.into_iter().map(Result::unwrap).collect()))
     } else {
         Err(actix_web::error::ErrorForbidden("You are not an admin"))
     }
