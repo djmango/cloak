@@ -6,7 +6,7 @@ use indicatif::ProgressIterator;
 
 use crate::routes::auth::WorkOSUser;
 
-#[derive(Debug, FromRow, Serialize, Deserialize)]
+#[derive(Clone, Debug, FromRow, Serialize, Deserialize)]
 pub struct User {
     pub id: String, // user_01E4ZCR3C56J083X43JQXF3JK5
     pub first_name: Option<String>,
@@ -41,6 +41,48 @@ impl User {
             created_at: created_at.unwrap_or_else(Utc::now),
             ..Default::default()
         }
+    }
+
+
+    // pub async fn save(&self, pool: &PgPool) -> Result<(), Error> {
+    //     // Start a transaction
+    //     let mut transaction = pool.begin().await?;
+
+    //     // Execute the INSERT SQL with ON CONFLICT DO UPDATE
+    //     query!(
+    //         r#"
+    //         INSERT INTO users (id, first_name, last_name, email, linked_to_keywords, created_at, updated_at)
+    //         VALUES ($1, $2, $3, $4, $5, $6, $7)
+    //         ON CONFLICT (id) DO UPDATE
+    //         SET first_name = EXCLUDED.first_name,
+    //             last_name = EXCLUDED.last_name,
+    //             email = EXCLUDED.email,
+    //             linked_to_keywords = EXCLUDED.linked_to_keywords,
+    //             updated_at = EXCLUDED.updated_at
+    //         "#,
+    //         self.id,                       // $1
+    //         self.first_name,               // $2
+    //         self.last_name,                // $3
+    //         self.email,                    // $4
+    //         self.linked_to_keywords,       // $5
+    //         self.created_at,               // $6
+    //         self.updated_at                // $7
+    //     )
+    //     .execute(&mut *transaction)
+    //     .await?;
+
+    //     // Commit the transaction
+    //     transaction.commit().await?;
+
+    //     Ok(())
+    // }
+
+    pub fn full_name(&self) -> String {
+        format!(
+            "{} {}",
+            self.first_name.as_deref().unwrap_or_default(),
+            self.last_name.as_deref().unwrap_or_default()
+        )
     }
 
     pub async fn get_or_create_or_update_bulk_workos(
@@ -126,5 +168,52 @@ impl User {
         transaction.commit().await?;
 
         Ok(user_results)
+    }
+
+    pub async fn get_bulk(pool: &PgPool, user_ids: Vec<String>) -> Result<Vec<User>, Error> {
+        if user_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        
+        // Construct the dynamic query with positional parameters
+        let query_str = format!(
+            "SELECT * FROM users WHERE id IN ({})",
+            user_ids.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect::<Vec<_>>().join(",")
+        );
+
+        // Prepare the query
+        let mut query = sqlx::query_as::<_, User>(&query_str);
+        
+        // Bind each user_id
+        for user_id in user_ids {
+            query = query.bind(user_id); // Bind user_id one by one
+        }
+
+        // Execute and fetch all users
+        let users = query.fetch_all(pool).await?;
+
+        Ok(users)
+    }
+
+    pub async fn get_all(pool: &PgPool) -> Result<Vec<User>, Error> {
+        // Simple query to fetch all users
+        let query_str = "SELECT * FROM users";
+
+        // Execute the query and fetch all users
+        let users = query_as::<_, User>(query_str).fetch_all(pool).await?;
+
+        Ok(users)
+    }
+
+    pub async fn update_linked_status(&self, pool: &PgPool, linked_to_keywords: bool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE users SET linked_to_keywords = $1 WHERE id = $2",
+            linked_to_keywords,
+            self.id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
     }
 }
