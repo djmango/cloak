@@ -93,7 +93,6 @@ async fn chat(
 
     // For each message, ensure the content is not empty, put a - at the start of the message if it's empty
     for message in &mut request_args.messages {
-        // info!("Message type: {:?}", message);
         match message {
             ChatCompletionRequestMessage::User(user_message) => match &mut user_message.content {
                 ChatCompletionRequestUserMessageContent::Text(text) => {
@@ -116,22 +115,17 @@ async fn chat(
                             }
                             .into(),
                         );
-                        info!("Fixed empty user message via array");
                     }
                 }
             },
             ChatCompletionRequestMessage::Assistant(assistant_message) => {
-                info!("Assistant message: {:?}", assistant_message);
                 if let Some(content) = &assistant_message.content {
                     if content.trim().is_empty() {
-                        assistant_message.content = Some("-".to_string());
-                        info!("Fixed empty assistant message");
+                        assistant_message.content = Some("blank".to_string());
                     }
                 }
             }
-            _ => {
-                info!("Message type: {:?}", message);
-            }
+            _ => {}
         }
     }
 
@@ -156,7 +150,6 @@ async fn chat(
         )]));
     }
 
-    info!("Creating chat completion stream");
     let response = client
         .chat()
         .create_stream(request_args)
