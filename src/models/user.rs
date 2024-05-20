@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{query, query_as, FromRow, PgPool, Postgres, Transaction};
+use sqlx::{query, query_as, FromRow, PgPool };
 use anyhow::Error;
-use tracing::info;
+use indicatif::ProgressIterator;
 
 use crate::routes::auth::WorkOSUser;
 
@@ -32,118 +32,15 @@ impl Default for User {
 }
 
 impl User {
-    pub fn new(id: &str, first_name: &str, last_name: &str, email: &str) -> Self {
+    pub fn new(id: &str, first_name: &str, last_name: &str, email: &str, created_at: Option<DateTime<Utc>>) -> Self {
         User {
             id: id.to_string(),
             first_name: Some(first_name.to_string()),
             last_name: Some(last_name.to_string()),
             email: email.to_string(),
+            created_at: created_at.unwrap_or_else(Utc::now),
             ..Default::default()
         }
-    }
-
-    pub fn from_workos_user(workos_user: WorkOSUser) -> Self {
-        User {
-            id: workos_user.id,
-            first_name: workos_user.first_name,
-            last_name: workos_user.last_name,
-            email: workos_user.email,
-            created_at: workos_user.created_at,
-            updated_at: workos_user.updated_at,
-            ..Default::default()
-        }
-    }
-
-    pub async fn get_or_create(
-        pool: &PgPool,
-        id: &str,
-        first_name: &str,
-        last_name: &str,
-        email: &str,
-    ) -> Result<Self, sqlx::Error> {
-        // Attempt to find the user in the database
-        if let Some(existing_user) = sqlx::query_as!(
-            User,
-            r#"
-            SELECT * FROM users 
-            WHERE id = $1
-            "#,
-            id
-        )
-        .fetch_optional(pool)
-        .await?
-        {
-            return Ok(existing_user);
-        }
-
-        // If the user is not found, create a new entry
-        let new_user = User::new(id, first_name, last_name, email);
-
-        sqlx::query!(
-            r#"
-            INSERT INTO users (id, first_name, last_name, email, linked_to_keywords, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            "#,
-            new_user.id,
-            new_user.first_name,
-            new_user.last_name,
-            new_user.email,
-            new_user.linked_to_keywords,
-            new_user.created_at,
-            new_user.updated_at
-        )
-        .execute(pool)
-        .await?;
-
-        Ok(new_user)
-    }
-
-    pub async fn get_or_create_workos(
-        pool: &PgPool,
-        workos_user: WorkOSUser
-    ) -> Result<Self, Error> {
-        // Attempt to find the user in the database
-        if let Some(existing_user) = sqlx::query_as!(
-            User,
-            r#"
-            SELECT * FROM users 
-            WHERE id = $1
-            "#,
-            workos_user.id
-        )
-        .fetch_optional(pool)
-        .await?
-        {
-            return Ok(existing_user);
-        }
-
-        // If the user is not found, create a new entry
-        let new_user = User::new(
-            &workos_user.id,
-            workos_user.first_name.as_deref().unwrap_or_default(),
-            workos_user.last_name.as_deref().unwrap_or_default(),
-            &workos_user.email,
-        );
-
-        info!("Creating user: {:?}", new_user.email);
-
-        sqlx::query!(
-            r#"
-            INSERT INTO users (id, first_name, last_name, email, linked_to_keywords, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            "#,
-            new_user.id,
-            new_user.first_name,
-            new_user.last_name,
-            new_user.email,
-            new_user.linked_to_keywords,
-            new_user.created_at,
-            new_user.updated_at 
-        )
-        .execute(pool)
-        .await?;
-
-        Ok(new_user)
     }
 
     pub async fn get_or_create_or_update_bulk_workos(
@@ -154,7 +51,7 @@ impl User {
 
         let mut user_results = Vec::new();
 
-        for workos_user in workos_users {
+        for workos_user in workos_users.into_iter().progress() {
             if let Some(existing_user) = query_as!(
                 User,
                 r#"
@@ -175,8 +72,6 @@ impl User {
                     updated_at: Utc::now(),
                     linked_to_keywords: existing_user.linked_to_keywords, // Use existing field value
                 };
-
-                info!("Updating user: {:?}", updated_user.email);
 
                 query!(
                     r#"
@@ -205,9 +100,8 @@ impl User {
                     workos_user.first_name.as_deref().unwrap_or_default(),
                     workos_user.last_name.as_deref().unwrap_or_default(),
                     &workos_user.email,
+                    Some(workos_user.created_at),
                 );
-
-                info!("Creating user: {:?}", new_user.email);
 
                 query!(
                     r#"

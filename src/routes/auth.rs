@@ -7,7 +7,6 @@ use actix_web::{
     Error, Responder,
 };
 use chrono::{DateTime, Utc};
-use futures::future::join_all;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
