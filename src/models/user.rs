@@ -13,6 +13,20 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
+impl Default for User {
+    fn default() -> Self {
+        User {
+            id: String::new(), // These will be ignored by the `new` constructor
+            first_name: String::new(),
+            last_name: String::new(),
+            email: String::new(),
+            linked_to_keywords: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+}
+
 impl User {
     pub fn new(id: &str, first_name: &str, last_name: &str, email: &str) -> Self {
         User {
@@ -66,19 +80,5 @@ impl User {
         .await?;
 
         Ok(new_user)
-    }
-}
-
-impl Default for User {
-    fn default() -> Self {
-        User {
-            id: String::new(), // These will be ignored by the `new` constructor
-            first_name: String::new(),
-            last_name: String::new(),
-            email: String::new(),
-            linked_to_keywords: false,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        }
     }
 }

@@ -54,6 +54,7 @@ async fn main(
                     web::scope("/auth")
                         .service(routes::auth::auth_callback)
                         .service(routes::auth::get_user)
+                        .service(routes::auth::get_users)
                         .service(routes::auth::login)
                         .service(routes::auth::refresh_token)
                         .service(routes::auth::signup),
