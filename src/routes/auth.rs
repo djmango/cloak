@@ -7,11 +7,13 @@ use actix_web::{
     Error, Responder,
 };
 use chrono::{DateTime, Utc};
+use futures::stream::{FuturesUnordered, StreamExt};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
 struct AuthCallbackQuery {
@@ -163,10 +165,9 @@ async fn get_users(
     }
 }
 
-/// Get all users, async then get_or_create them into the database, and PATCH them all to
-/// KeywordsAI API
-#[get("/users/sync")]
-async fn sync_users(
+/// Get all users from workos, async then get, create, or update them into the database
+#[get("/users/sync_workos")]
+async fn sync_users_workos(
     authenticated_user: AuthenticatedUser,
     app_config: web::Data<Arc<AppConfig>>,
     app_state: web::Data<Arc<AppState>>,
@@ -178,6 +179,92 @@ async fn sync_users(
 
         match User::get_or_create_or_update_bulk_workos(&app_state.pool, workos_users).await {
             Ok(users) => Ok(web::Json(users)),
+            Err(err) => Err(actix_web::error::ErrorInternalServerError(err.to_string())),
+        }
+    } else {
+        Err(actix_web::error::ErrorForbidden("You are not an admin"))
+    }
+}
+
+/// Get all users, async PATCH them all to KeywordsAI API
+#[get("/users/sync_keywords")]
+async fn sync_users_keywords(
+    authenticated_user: AuthenticatedUser,
+    app_config: web::Data<Arc<AppConfig>>,
+    app_state: web::Data<Arc<AppState>>,
+) -> Result<Json<Vec<User>>, Error> {
+    if authenticated_user.is_admin() {
+        match User::get_all(&app_state.pool).await {
+            Ok(mut users) => {
+                info!("Synced {} users", users.len());
+                let shared_client = Arc::new(Client::new());
+                let futures = FuturesUnordered::new();
+
+                for user in &mut users.iter_mut() {
+                    if !user.linked_to_keywords {
+                        let mut user_arc = Arc::new(user.clone());
+                        let client_clone = Arc::clone(&shared_client);
+                        let api_key = app_config.keywords_api_key.clone();
+
+                        futures.push(async move {
+                            info!(
+                                "User {} not linked to KeywordsAI, linking now",
+                                user_arc.email
+                            );
+                            let url = format!(
+                                "https://api.keywordsai.co/api/user/update/{}",
+                                user_arc.id
+                            );
+
+                            info!("URL: {}", url);
+
+                            let response = client_clone
+                                .patch(&url)
+                                .bearer_auth(&api_key)
+                                .json(&json!({
+                                    "name": user_arc.full_name(),
+                                    "email": user_arc.email,
+                                }))
+                                .send()
+                                .await;
+
+                            match response {
+                                Ok(resp) => {
+                                    if resp.status().is_success() {
+                                        info!("User {} linked to KeywordsAI", user_arc.email);
+                                        Arc::get_mut(&mut user_arc).unwrap().linked_to_keywords =
+                                            true;
+                                    } else {
+                                        let error_body = resp.text().await.unwrap_or_else(|_| {
+                                            "Failed to read response body".to_string()
+                                        });
+                                        warn!("Error response from KeywordsAI: {}", error_body);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("HTTP request error: {}", e);
+                                }
+                            }
+                        });
+                    }
+                }
+
+                futures.collect::<Vec<_>>().await;
+
+                info!("Updating users in the database");
+
+                for user in &users {
+                    user.update_linked_status(&app_state.pool, true)
+                        .await
+                        .map_err(|e| {
+                            error!("Failed to update user: {}", e);
+                            actix_web::error::ErrorInternalServerError(e.to_string())
+                        })?;
+                    info!("User {} updated", user.email);
+                }
+
+                Ok(web::Json(users))
+            }
             Err(err) => Err(actix_web::error::ErrorInternalServerError(err.to_string())),
         }
     } else {
