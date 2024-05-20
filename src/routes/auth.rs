@@ -177,30 +177,10 @@ async fn sync_users(
             .await
             .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
-        // Collect all futures into a vector
-        let futures = workos_users
-            .into_iter()
-            .map(|workos_user| User::get_or_create_or_update(&app_state.pool, workos_user))
-            .collect::<Vec<_>>();
-
-        // Await all futures and handle results
-        let results = join_all(futures).await;
-
-        // Partition into successes and errors
-        let (users, errors): (Vec<_>, Vec<_>) = results.into_iter().partition(Result::is_ok);
-
-        if !errors.is_empty() {
-            return Err(actix_web::error::ErrorInternalServerError(
-                errors
-                    .into_iter()
-                    .map(Result::unwrap_err)
-                    .map(|e| e.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ));
+        match User::get_or_create_or_update_bulk_workos(&app_state.pool, workos_users).await {
+            Ok(users) => Ok(web::Json(users)),
+            Err(err) => Err(actix_web::error::ErrorInternalServerError(err.to_string())),
         }
-
-        Ok(web::Json(users.into_iter().map(Result::unwrap).collect()))
     } else {
         Err(actix_web::error::ErrorForbidden("You are not an admin"))
     }

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{query, query_as, FromRow, PgPool, Postgres, Transaction};
 use anyhow::Error;
 use tracing::info;
 
@@ -98,7 +98,7 @@ impl User {
         Ok(new_user)
     }
 
-    pub async fn get_or_create_or_update(
+    pub async fn get_or_create_workos(
         pool: &PgPool,
         workos_user: WorkOSUser
     ) -> Result<Self, Error> {
@@ -114,40 +114,7 @@ impl User {
         .fetch_optional(pool)
         .await?
         {
-            // If user exists, update certain fields
-            let updated_user = User {
-                id: existing_user.id,
-                first_name: workos_user.first_name.clone(),
-                last_name: workos_user.last_name.clone(),
-                email: workos_user.email.clone(),
-                created_at: workos_user.created_at,
-                updated_at: Utc::now(),
-                linked_to_keywords: existing_user.linked_to_keywords, // Use existing field value
-            };
-
-            info!("Updating user: {:?}", updated_user.email);
-
-            sqlx::query!(
-                r#"
-                UPDATE users
-                SET first_name = $1,
-                    last_name = $2,
-                    email = $3,
-                    created_at = $4,
-                    updated_at = $5
-                WHERE id = $6
-                "#,
-                updated_user.first_name,
-                updated_user.last_name,
-                updated_user.email,
-                updated_user.created_at,
-                updated_user.updated_at,
-                updated_user.id,
-            )
-            .execute(pool)
-            .await?;
-
-            return Ok(updated_user);
+            return Ok(existing_user);
         }
 
         // If the user is not found, create a new entry
@@ -177,5 +144,93 @@ impl User {
         .await?;
 
         Ok(new_user)
+    }
+
+    pub async fn get_or_create_or_update_bulk_workos(
+        pool: &PgPool,
+        workos_users: Vec<WorkOSUser>,
+    ) -> Result<Vec<Self>, Error> {
+        let mut transaction = pool.begin().await?;
+
+        let mut user_results = Vec::new();
+
+        for workos_user in workos_users {
+            if let Some(existing_user) = query_as!(
+                User,
+                r#"
+                SELECT * FROM users 
+                WHERE id = $1
+                "#,
+                workos_user.id
+            )
+            .fetch_optional(&mut *transaction)
+            .await?
+            {
+                let updated_user = User {
+                    id: existing_user.id,
+                    first_name: workos_user.first_name.clone(),
+                    last_name: workos_user.last_name.clone(),
+                    email: workos_user.email.clone(),
+                    created_at: workos_user.created_at,
+                    updated_at: Utc::now(),
+                    linked_to_keywords: existing_user.linked_to_keywords, // Use existing field value
+                };
+
+                info!("Updating user: {:?}", updated_user.email);
+
+                query!(
+                    r#"
+                    UPDATE users
+                    SET first_name = $1,
+                        last_name = $2,
+                        email = $3,
+                        created_at = $4,
+                        updated_at = $5
+                    WHERE id = $6
+                    "#,
+                    updated_user.first_name,
+                    updated_user.last_name,
+                    updated_user.email,
+                    updated_user.created_at,
+                    updated_user.updated_at,
+                    updated_user.id,
+                )
+                .execute(&mut *transaction)
+                .await?;
+
+                user_results.push(updated_user);
+            } else {
+                let new_user = User::new(
+                    &workos_user.id,
+                    workos_user.first_name.as_deref().unwrap_or_default(),
+                    workos_user.last_name.as_deref().unwrap_or_default(),
+                    &workos_user.email,
+                );
+
+                info!("Creating user: {:?}", new_user.email);
+
+                query!(
+                    r#"
+                    INSERT INTO users (id, first_name, last_name, email, linked_to_keywords, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    "#,
+                    new_user.id,
+                    new_user.first_name,
+                    new_user.last_name,
+                    new_user.email,
+                    new_user.linked_to_keywords,
+                    new_user.created_at,
+                    new_user.updated_at 
+                )
+                .execute(&mut *transaction)
+                .await?;
+
+                user_results.push(new_user);
+            }
+        }
+
+        transaction.commit().await?;
+
+        Ok(user_results)
     }
 }
