@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Type};
+use sqlx::FromRow;
 use uuid::Uuid;
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -21,9 +21,9 @@ pub struct Chat {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Serialize, Deserialize)]
-// #[sqlx(type_name = "role_enum")] // SQL type name
-// #[sqlx(rename_all = "lowercase")] // SQL value name
+#[derive(Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "role_enum")] // SQL type name
+#[sqlx(rename_all = "lowercase")] // SQL value name
 pub enum Role {
     Assistant,
     System,
@@ -38,7 +38,7 @@ pub struct Message {
     pub user_id: String,
     pub text: String,
     pub role: Role,
+    pub files: Option<Vec<String>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub images: Option<Vec<Vec<u8>>>,
 }
