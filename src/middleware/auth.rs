@@ -19,6 +19,12 @@ pub struct AuthenticatedUser {
     pub user_id: String,
 }
 
+impl AuthenticatedUser {
+    pub fn is_admin(&self) -> bool {
+        self.user_id == "user_01HRBJ8FVP3JT28DEWXN6JPKF5"
+    }
+}
+
 // This is the trait that actix-web uses to extract the `AuthenticatedUser` from the request
 // This is how we can use `AuthenticatedUser` as a parameter in our route handlers
 // It automatically returns a 401 Unauthorized if the user is not authenticated

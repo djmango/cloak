@@ -59,6 +59,18 @@ pub struct Claims {
     pub iat: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct ListMetadata {
+    before: Option<String>,
+    after: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GetUserResponse {
+    data: Vec<WorkOSUser>,
+    list_metadata: ListMetadata,
+}
+
 /// A redirect to the WorkOS login page
 #[get("/login")]
 async fn login() -> Result<impl Responder, Error> {
@@ -134,11 +146,27 @@ async fn get_user(
     Ok(web::Json(workos_user?))
 }
 
+/// Get all users, but only if the authenticated user is an admin
+#[get("/users")]
+async fn get_users(
+    authenticated_user: AuthenticatedUser,
+    app_config: web::Data<Arc<AppConfig>>,
+) -> Result<Json<Vec<WorkOSUser>>, Error> {
+    if authenticated_user.is_admin() {
+        let users = fetch_all_users(app_config.get_ref().clone())
+            .await
+            .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+        Ok(web::Json(users))
+    } else {
+        Err(actix_web::error::ErrorForbidden("You are not an admin"))
+    }
+}
+
 /// Look up a user by ID using the WorkOS API and return the user information
 pub async fn user_id_to_user(
     user_id: &str,
     app_config: Arc<AppConfig>,
-) -> Result<WorkOSUser, Box<dyn std::error::Error>> {
+) -> Result<WorkOSUser, anyhow::Error> {
     let client = Client::new();
     let response = client
         .get(format!(
@@ -164,7 +192,7 @@ pub async fn user_id_to_user(
                     .await
                     .unwrap_or_else(|_| "Failed to read response body".to_string());
                 error!("Error response from WorkOS: {}", error_body);
-                Err("Failed to fetch user from WorkOS".into())
+                Err(anyhow::anyhow!("Failed to fetch user from WorkOS"))
             }
         }
         Err(e) => {
@@ -174,23 +202,55 @@ pub async fn user_id_to_user(
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct ListMetadata {
-    before: Option<String>,
-    after: Option<String>,
-}
+pub async fn fetch_all_users(app_config: Arc<AppConfig>) -> Result<Vec<WorkOSUser>, anyhow::Error> {
+    let client = Client::new();
+    let mut users = Vec::new();
+    let mut after: Option<String> = None;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct GetUserResponse {
-    data: Vec<WorkOSUser>,
-    list_metadata: ListMetadata,
+    loop {
+        // Build the request URL, including pagination
+        let mut url = "https://api.workos.com/user_management/users".to_string();
+        if let Some(ref after_id) = after {
+            url = format!("{}?limit=100&after={}", url, after_id);
+        }
+
+        let response = client
+            .get(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", app_config.workos_api_key),
+            )
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let user_list: GetUserResponse = response.json().await?;
+            users.extend(user_list.data);
+
+            if let Some(next_after) = user_list.list_metadata.after {
+                after = Some(next_after);
+            } else {
+                break; // No more pages
+            }
+        } else {
+            // Attempt to read the response body for error details
+            let error_body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Failed to read response body".to_string());
+            error!("Error response from WorkOS: {}", error_body);
+            return Err(anyhow::anyhow!("Failed to fetch users from WorkOS"));
+        }
+    }
+
+    Ok(users)
 }
 
 /// Look up a user by email using the WorkOS API and return the user information
 pub async fn user_email_to_user(
     user_email: &str,
     app_config: Arc<AppConfig>,
-) -> Result<WorkOSUser, Box<dyn std::error::Error>> {
+) -> Result<WorkOSUser, anyhow::Error> {
     let client = Client::new();
     let response = client
         .get(format!(
@@ -216,7 +276,7 @@ pub async fn user_email_to_user(
                     .await
                     .unwrap_or_else(|_| "Failed to read response body".to_string());
                 error!("Error response from WorkOS: {}", error_body);
-                Err("Failed to fetch user from WorkOS".into())
+                Err(anyhow::anyhow!("Failed to fetch user from WorkOS"))
             }
         }
         Err(e) => {
@@ -230,7 +290,7 @@ pub async fn user_email_to_user(
 async fn exchange_code_for_user(
     code: &str,
     app_config: Arc<AppConfig>,
-) -> Result<WorkOSAuthResponse, Box<dyn std::error::Error>> {
+) -> Result<WorkOSAuthResponse, anyhow::Error> {
     // Use a more generic error type to allow for different kinds of errors
     let client = Client::new();
     let response = client
@@ -263,7 +323,7 @@ async fn exchange_code_for_user(
                     .await
                     .unwrap_or_else(|_| "Failed to read response body".to_string());
                 error!("Error response from WorkOS: {}", error_body);
-                Err("Failed to authenticate user with WorkOS".into())
+                Err(anyhow::anyhow!("Failed to authenticate with WorkOS"))
             }
         }
         Err(e) => {
