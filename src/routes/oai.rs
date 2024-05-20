@@ -98,8 +98,7 @@ async fn chat(
             ChatCompletionRequestMessage::User(user_message) => match &mut user_message.content {
                 ChatCompletionRequestUserMessageContent::Text(text) => {
                     if text.trim().is_empty() {
-                        *text = "-".to_string();
-                        info!("Fixed empty user message");
+                        *text = "example blank text".to_string();
                     }
                 }
                 ChatCompletionRequestUserMessageContent::Array(array) => {
@@ -107,18 +106,13 @@ async fn chat(
                         ChatCompletionRequestMessageContentPart::Text(text) => {
                             text.text.trim().is_empty()
                         }
-                        _ => {
-                            // Consider non-text parts as "effectively empty" for this check
-                            info!("Non-text part in array");
-                            // print the part for debugging
-                            info!("{:?}", part);
-                            true
-                        }
+                        // Consider non-text parts as "effectively empty" for this check
+                        _ => true,
                     }) {
                         array.push(
                             ChatCompletionRequestMessageContentPartText {
                                 r#type: "text".to_string(),
-                                text: "-".to_string(),
+                                text: "image attached".to_string(),
                             }
                             .into(),
                         );

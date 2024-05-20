@@ -13,6 +13,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
@@ -195,35 +196,45 @@ async fn sync_users_keywords(
 ) -> Result<Json<Vec<User>>, Error> {
     if authenticated_user.is_admin() {
         match User::get_all(&app_state.pool).await {
-            Ok(mut users) => {
-                info!("Synced {} users", users.len());
+            Ok(users) => {
+                let mut users_to_process: Vec<_> = users
+                    .clone()
+                    .into_iter()
+                    .filter(|user| !user.linked_to_keywords)
+                    .collect();
                 let shared_client = Arc::new(Client::new());
                 let futures = FuturesUnordered::new();
+                info!(
+                    "Attempting to sync {} users to KeywordsAI",
+                    users_to_process.len()
+                );
 
-                for user in &mut users.iter_mut() {
+                let max_concurrent_requests = 50;
+                let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
+                for user in users_to_process.iter() {
+                    // Wait until we can acquire a permit
+                    _ = semaphore.clone().acquire_owned().await.map_err(|e| {
+                        error!("Failed to acquire semaphore: {}", e);
+                        actix_web::error::ErrorInternalServerError(e.to_string())
+                    })?;
+
                     if !user.linked_to_keywords {
-                        let mut user_arc = Arc::new(user.clone());
+                        let user_id = user.id.clone();
+                        let user_email = user.email.clone();
+                        let user_name = user.full_name();
                         let client_clone = Arc::clone(&shared_client);
                         let api_key = app_config.keywords_api_key.clone();
 
                         futures.push(async move {
-                            info!(
-                                "User {} not linked to KeywordsAI, linking now",
-                                user_arc.email
-                            );
-                            let url = format!(
-                                "https://api.keywordsai.co/api/user/update/{}",
-                                user_arc.id
-                            );
-
-                            info!("URL: {}", url);
+                            let url =
+                                format!("https://api.keywordsai.co/api/user/update/{}", user_id);
 
                             let response = client_clone
                                 .patch(&url)
                                 .bearer_auth(&api_key)
                                 .json(&json!({
-                                    "name": user_arc.full_name(),
-                                    "email": user_arc.email,
+                                    "name": user_name,
+                                    "email": user_email,
                                 }))
                                 .send()
                                 .await;
@@ -231,37 +242,47 @@ async fn sync_users_keywords(
                             match response {
                                 Ok(resp) => {
                                     if resp.status().is_success() {
-                                        info!("User {} linked to KeywordsAI", user_arc.email);
-                                        Arc::get_mut(&mut user_arc).unwrap().linked_to_keywords =
-                                            true;
+                                        info!("User {} linked to KeywordsAI", user_email);
+                                        Ok(user_id)
                                     } else {
                                         let error_body = resp.text().await.unwrap_or_else(|_| {
                                             "Failed to read response body".to_string()
                                         });
                                         warn!("Error response from KeywordsAI: {}", error_body);
+                                        Err(())
                                     }
                                 }
                                 Err(e) => {
                                     error!("HTTP request error: {}", e);
+                                    Err(())
                                 }
                             }
                         });
                     }
                 }
 
-                futures.collect::<Vec<_>>().await;
+                let results: Vec<Result<String, ()>> = futures.collect().await;
 
-                info!("Updating users in the database");
-
-                for user in &users {
-                    user.update_linked_status(&app_state.pool, true)
-                        .await
-                        .map_err(|e| {
-                            error!("Failed to update user: {}", e);
-                            actix_web::error::ErrorInternalServerError(e.to_string())
-                        })?;
-                    info!("User {} updated", user.email);
+                let mut users_to_update = Vec::new();
+                for (user, result) in users_to_process.iter_mut().zip(results) {
+                    if let Ok(user_id) = result {
+                        user.linked_to_keywords = true;
+                        users_to_update.push(user_id);
+                    }
                 }
+
+                info!("Updating {} users", users_to_update.len());
+
+                sqlx::query!(
+                    "UPDATE users SET linked_to_keywords = true WHERE id = ANY($1)",
+                    &users_to_update
+                )
+                .execute(&app_state.pool)
+                .await
+                .map_err(|e| {
+                    error!("Failed to update users: {}", e);
+                    actix_web::error::ErrorInternalServerError(e.to_string())
+                })?;
 
                 Ok(web::Json(users))
             }
