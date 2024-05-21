@@ -11,8 +11,8 @@ split-debuginfo = "unpacked"
 actix-cors = "0.7.0"
 actix-web = "4.3.1"
 anyhow = "1.0.80"
-# async-openai = { git = "https://github.com/djmango/async-openai.git", branch = "master" }
-async-openai = { path = "../async-openai/async-openai/" }
+async-openai = { git = "https://github.com/djmango/async-openai.git", branch = "master" }
+# async-openai = { path = "../async-openai/async-openai/" }
 async-stripe = { version = "0.34.1", default-features = false, features = ["runtime-tokio-hyper", "billing", "checkout"] }
 aws-sdk-s3 = "1.29.0"
 bytes = "1.5.0"

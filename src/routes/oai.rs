@@ -2,7 +2,6 @@ use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
 use crate::models::message::Message;
-use crate::models::user::User;
 use crate::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
