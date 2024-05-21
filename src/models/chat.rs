@@ -1,6 +1,8 @@
+use anyhow::Error;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{query_as, FromRow, PgPool};
+use tracing::debug;
 use uuid::Uuid;
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
@@ -19,6 +21,43 @@ impl Chat {
             name: name.to_string(),
             ..Default::default()
         }
+    }
+
+    /// Returns a chat for a given user_id, if it exists, otherwise creates a new chat and returns it.
+    pub async fn get_or_create_by_user_id(pool: &PgPool, user_id: &str) -> Result<Self, Error> {
+        if let Some(chat) = query_as!(
+            Chat,
+            r#"
+            SELECT * FROM chats 
+            WHERE user_id = $1
+            "#,
+            user_id
+        )
+        .fetch_optional(pool)
+        .await?
+        {
+            debug!("Chat found: {:?}", chat);
+            return Ok(chat);
+        }
+
+        let chat = Chat::new(user_id, "New Chat");
+        let chat = query_as!(
+            Chat,
+            r#"
+                INSERT INTO chats (id, user_id, name, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING *
+                "#,
+            chat.id,
+            chat.user_id,
+            chat.name,
+            chat.created_at,
+            chat.updated_at
+        )
+        .fetch_one(pool)
+        .await?;
+        debug!("Chat created: {:?}", chat);
+        Ok(chat)
     }
 }
 

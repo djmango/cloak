@@ -350,7 +350,6 @@ dependencies = [
 [[package]]
 name = "async-openai"
 version = "0.21.0"
-source = "git+https://github.com/djmango/async-openai.git?branch=master#7cbf082b3cfa91fd5293042ac4afd8868d1530b3"
 dependencies = [
  "async-convert",
  "backoff",
@@ -364,11 +363,13 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -399,10 +400,7 @@ version = "0.34.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "109605d984dd71a9a278e2d43a2831a20e80f25c3bcc25174096d12352cfc469"
 dependencies = [
- "chrono",
  "futures-util",
- "hex",
- "hmac",
  "http-types",
  "hyper 0.14.28",
  "hyper-tls",
@@ -410,12 +408,10 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "serde_qs 0.10.1",
- "sha2",
  "smart-default",
  "smol_str",
  "thiserror",
  "tokio",
- "uuid 0.8.2",
 ]
 
 [[package]]
@@ -477,7 +473,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid 1.8.0",
+ "uuid",
 ]
 
 [[package]]
@@ -1101,15 +1097,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
-name = "convert_case"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
 name = "cookie"
 version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1377,7 +1364,7 @@ version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
 dependencies = [
- "convert_case 0.4.0",
+ "convert_case",
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -2223,7 +2210,6 @@ name = "invisibility"
 version = "0.1.0"
 dependencies = [
  "actix-cors",
- "actix-service",
  "actix-web",
  "anyhow",
  "async-openai",
@@ -2231,13 +2217,10 @@ dependencies = [
  "aws-sdk-s3",
  "bytes",
  "chrono",
- "convert_case 0.6.0",
  "futures",
  "futures-util",
  "indicatif",
  "jsonwebtoken",
- "once_cell",
- "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -2246,10 +2229,9 @@ dependencies = [
  "shuttle-runtime",
  "sqlx",
  "sqlx-cli",
- "thiserror",
  "tokio",
  "tracing",
- "uuid 1.8.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3699,7 +3681,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
- "uuid 1.8.0",
+ "uuid",
  "zeroize",
 ]
 
@@ -3998,6 +3980,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -4080,6 +4063,7 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -4120,6 +4104,7 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -4146,6 +4131,7 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]
@@ -4697,15 +4683,6 @@ name = "utf8parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
-
-[[package]]
-name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom 0.2.15",
-]
 
 [[package]]
 name = "uuid"

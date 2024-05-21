@@ -1,3 +1,9 @@
+use crate::config::AppConfig;
+use crate::middleware::auth::AuthenticatedUser;
+use crate::models::chat::Chat;
+use crate::models::message::Message;
+use crate::models::user::User;
+use crate::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
@@ -15,10 +21,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info};
 
-use crate::config::AppConfig;
-use crate::middleware::auth::AuthenticatedUser;
-use crate::AppState;
-
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
@@ -26,11 +28,9 @@ async fn chat(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let user_id = &authenticated_user.user_id;
-
     info!(
         "User {} hit the AI endpoint with model: {}",
-        user_id, req_body.model
+        &authenticated_user.user_id, req_body.model
     );
 
     let mut request_args = req_body.into_inner();
@@ -39,13 +39,13 @@ async fn chat(
     request_args.stream = Some(true);
 
     // Set the user ID
-    request_args.customer_identifier = Some(user_id.clone());
+    request_args.customer_identifier = Some(authenticated_user.user_id.clone());
 
     // If we want to use claude, use the openrouter client, otherwise use the standard openai client
     let client: Client<OpenAIConfig> = app_state.keywords_client.clone();
 
-    // Max tokens as 2048
-    request_args.max_tokens = Some(2048);
+    // Max tokens as 4096
+    request_args.max_tokens = Some(4096);
 
     // Conform the model id to what's expected by the provider
     request_args.model = match request_args.model.as_str() {
@@ -150,6 +150,69 @@ async fn chat(
         )]));
     }
 
+    // invisibility struct will have our chat id if it exists
+    // match &request_args.invisibility {
+    //     Some(invisibility) => {
+    //         let chat_id = invisibility.chat_id;
+    //         let message = Message::new(
+    //             chat_id,
+    //             user_id,
+    //             "Chat started",
+    //             crate::models::message::Role::User,
+    //         );
+    //     }
+    //     None => {}
+    // }
+    // let message = Message::new(chat_id, user_id, text, role)
+    // NOTE okay notes for tmrw so we need to get_or_create a chat id
+    // then we need to create and save a message with that chat id
+    // then we do the stream
+    // then we do the same with the response
+    // and both of these need to happen in async off our current thread
+    //
+
+    let last_message_option = request_args.messages.last().cloned();
+    let user_message_future =
+        async move {
+            let chat =
+                match Chat::get_or_create_by_user_id(&app_state.pool, &authenticated_user.user_id)
+                    .await
+                {
+                    Ok(chat) => chat, // Proceed with the obtained chat
+                    Err(e) => {
+                        error!("Error getting or creating chat: {:?}", e);
+                        return; // Exit the async block
+                    }
+                };
+
+            let last_oai_message = match last_message_option {
+                Some(message) => message,
+                None => {
+                    error!("No messages found in request_args.messages");
+                    return; // Exit the async block early
+                }
+            };
+
+            match Message::from_oai(
+                &app_state.pool,
+                last_oai_message,
+                chat.id,
+                &authenticated_user.user_id,
+            )
+            .await
+            {
+                Ok(message) => {
+                    info!("Message created from OAI message: {:?}", message);
+                }
+                Err(e) => {
+                    error!("Error creating message from OAI message: {:?}", e);
+                }
+            };
+        };
+
+    // Spawn a new task to store the user message asynchronously
+    actix_web::rt::spawn(user_message_future);
+
     let response = client
         .chat()
         .create_stream(request_args)
@@ -188,13 +251,18 @@ async fn chat(
         .map(|item_result| match item_result {
             Ok(item) => to_string(&item)
                 .map(|json_string| Bytes::from(format!("data: {}\n\n", json_string)))
-                .map_err(actix_web::error::ErrorInternalServerError),
-            Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+                .map_err(anyhow::Error::from),
+            Err(e) => Err(anyhow::Error::from(e)),
         })
         .map_err(|e| {
             error!("Error in chat completion stream: {:?}", e);
             e
         })
+        .chain(futures::stream::once(async {
+            info!("Stream processing completed.");
+            Ok(Bytes::new()) as Result<Bytes, anyhow::Error> // Emit empty data (will get caught by filter below)
+        }))
+        .filter(|result| futures::future::ready(!matches!(result, Ok(bytes) if bytes.is_empty())))
         .boxed();
 
     let response = HttpResponse::Ok()
