@@ -28,9 +28,9 @@ struct UserInvite {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct LoopsContact {
-    email: String,
-    source: String,
+pub struct LoopsContact {
+    pub email: String,
+    pub source: String,
 }
 
 #[get("/invite")]
