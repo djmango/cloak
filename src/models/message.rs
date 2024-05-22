@@ -7,10 +7,10 @@ use async_openai::types::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{query, FromRow, PgPool};
+use sqlx::{query, FromRow, PgPool, Type};
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize, sqlx::Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
 pub enum Role {
     Assistant,
