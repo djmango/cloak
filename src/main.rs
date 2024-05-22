@@ -46,11 +46,6 @@ async fn main(
             web::scope("")
                 .service(routes::hello::hello_world)
                 .service(
-                    web::scope("/oai")
-                        .service(routes::oai::chat)
-                        .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
-                )
-                .service(
                     web::scope("/auth")
                         .service(routes::auth::auth_callback)
                         .service(routes::auth::get_user)
@@ -62,6 +57,11 @@ async fn main(
                         .service(routes::auth::signup),
                 )
                 .service(
+                    web::scope("/oai")
+                        .service(routes::oai::chat)
+                        .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
+                )
+                .service(
                     web::scope("/pay")
                         .service(routes::pay::checkout)
                         .service(routes::pay::get_invite)
@@ -70,6 +70,7 @@ async fn main(
                         .service(routes::pay::paid)
                         .service(routes::pay::payment_success),
                 )
+                .service(web::scope("/sync").service(routes::sync::chats_and_messages))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
                 .wrap(middleware::auth::AuthenticationMiddleware {
                     app_config: app_config.clone(),
