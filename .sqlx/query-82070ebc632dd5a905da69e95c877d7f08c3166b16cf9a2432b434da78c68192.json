@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, chat_id, user_id, text, role as \"role: Role\", files, created_at, updated_at FROM messages\n        WHERE user_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "chat_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "role: Role",
+        "type_info": {
+          "Custom": {
+            "name": "role_enum",
+            "kind": {
+              "Enum": [
+                "assistant",
+                "system",
+                "tool",
+                "user"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "files",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "82070ebc632dd5a905da69e95c877d7f08c3166b16cf9a2432b434da78c68192"
+}
