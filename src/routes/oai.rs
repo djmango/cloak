@@ -13,12 +13,13 @@ use async_openai::types::{
 };
 use async_openai::Client;
 use bytes::Bytes;
+use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 #[post("/v1/chat/completions")]
 async fn chat(
@@ -27,7 +28,7 @@ async fn chat(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    info!(
+    debug!(
         "User {} hit the AI endpoint with model: {}",
         &authenticated_user.user_id, req_body.model
     );
@@ -171,43 +172,44 @@ async fn chat(
     //
 
     let last_message_option = request_args.messages.last().cloned();
-    let user_message_future =
+    let user_id = Arc::new(authenticated_user.user_id.clone());
+
+    let user_message_future = {
+        // Explicitly cloning the Arc for app_state and user_id
+        let app_state_clone = Arc::clone(&app_state);
+        let user_id_clone = Arc::clone(&user_id);
+
         async move {
             let chat =
-                match Chat::get_or_create_by_user_id(&app_state.pool, &authenticated_user.user_id)
-                    .await
-                {
-                    Ok(chat) => chat, // Proceed with the obtained chat
+                match Chat::get_or_create_by_user_id(&app_state_clone.pool, &user_id_clone).await {
+                    Ok(chat) => chat,
                     Err(e) => {
                         error!("Error getting or creating chat: {:?}", e);
-                        return; // Exit the async block
+                        return;
                     }
                 };
 
-            let last_oai_message = match last_message_option {
-                Some(message) => message,
-                None => {
-                    error!("No messages found in request_args.messages");
-                    return; // Exit the async block early
-                }
-            };
-
-            match Message::from_oai(
-                &app_state.pool,
-                last_oai_message,
-                chat.id,
-                &authenticated_user.user_id,
-            )
-            .await
-            {
-                Ok(message) => {
-                    info!("Message created from OAI message: {:?}", message);
-                }
-                Err(e) => {
-                    error!("Error creating message from OAI message: {:?}", e);
-                }
-            };
-        };
+            if let Some(last_oai_message) = last_message_option {
+                match Message::from_oai(
+                    &app_state_clone.pool,
+                    last_oai_message,
+                    chat.id,
+                    &user_id_clone,
+                )
+                .await
+                {
+                    Ok(message) => {
+                        debug!("Message created from OAI message: {:?}", message);
+                    }
+                    Err(e) => {
+                        error!("Error creating message from OAI message: {:?}", e);
+                    }
+                };
+            } else {
+                error!("No messages found in request_args.messages");
+            }
+        }
+    };
 
     // Spawn a new task to store the user message asynchronously
     actix_web::rt::spawn(user_message_future);
@@ -221,13 +223,16 @@ async fn chat(
             actix_web::error::ErrorInternalServerError(e.to_string())
         })?;
 
+    // This logging has a non-zero cost, but its essentially trival, less than 5 microseconds theorectically
+    let response_content = Arc::new(Mutex::new(String::new()));
+
     let stream = response
         .take_while(|item_result| match item_result {
             Ok(item) => {
                 if let Some(choice) = item.choices.first() {
                     match &choice.finish_reason {
                         Some(_) => {
-                            info!("Chat completion finished");
+                            debug!("Chat completion finished");
                             return futures::future::ready(false);
                         }
                         None => {}
@@ -238,7 +243,7 @@ async fn chat(
             Err(e) => {
                 match e {
                     OpenAIError::StreamError(ref err) if err == "Stream ended" => {
-                        info!("Chat completion stream ended");
+                        debug!("Chat completion stream ended");
                     }
                     _ => {
                         error!("Error in chat completion stream: {:?}", e);
@@ -247,19 +252,77 @@ async fn chat(
                 futures::future::ready(false)
             }
         })
-        .map(|item_result| match item_result {
-            Ok(item) => to_string(&item)
-                .map(|json_string| Bytes::from(format!("data: {}\n\n", json_string)))
-                .map_err(anyhow::Error::from),
-            Err(e) => Err(anyhow::Error::from(e)),
+        .then({
+            let response_content = Arc::clone(&response_content);
+            move |item_result| {
+                let response_content = Arc::clone(&response_content);
+                async move {
+                    match item_result {
+                        Ok(item) => {
+                            if let Some(chat_choice_stream) = item.choices.first() {
+                                if let Some(new_response_content) =
+                                    &chat_choice_stream.delta.content
+                                {
+                                    let mut content = response_content.lock().await;
+                                    content.push_str(new_response_content);
+                                }
+                            }
+                            to_string(&item)
+                                .map(|json_string| {
+                                    Bytes::from(format!("data: {}\n\n", json_string))
+                                })
+                                .map_err(anyhow::Error::from)
+                        }
+                        Err(e) => Err(anyhow::Error::from(e)),
+                    }
+                }
+            }
         })
         .map_err(|e| {
             error!("Error in chat completion stream: {:?}", e);
             e
         })
-        .chain(futures::stream::once(async {
-            info!("Stream processing completed.");
-            Ok(Bytes::new()) as Result<Bytes, anyhow::Error> // Emit empty data (will get caught by filter below)
+        .chain(futures::stream::once({
+            let response_content_clone = Arc::clone(&response_content);
+            let app_state_clone = Arc::clone(&app_state);
+            let user_id_clone = Arc::clone(&user_id);
+
+            async move {
+                let content = response_content_clone.lock().await.clone();
+                debug!("Stream processing completed");
+
+                let save_message = {
+                    let app_state_clone = Arc::clone(&app_state_clone);
+                    let user_id_clone = Arc::clone(&user_id_clone);
+
+                    async move {
+                        match Chat::get_or_create_by_user_id(&app_state_clone.pool, &user_id_clone)
+                            .await
+                        {
+                            Ok(chat) => {
+                                if let Err(err) = Message::new(
+                                    &app_state_clone.pool,
+                                    chat.id,
+                                    &chat.user_id,
+                                    &content,
+                                    crate::models::message::Role::Assistant,
+                                )
+                                .await
+                                {
+                                    error!("Failed to create message: {:?}", err);
+                                }
+                            }
+                            Err(e) => {
+                                error!("Error getting or creating chat: {:?}", e);
+                            }
+                        }
+                    }
+                };
+
+                actix_web::rt::spawn(save_message);
+
+                Ok(Bytes::new()) as Result<Bytes, anyhow::Error>
+            }
         }))
         .filter(|result| futures::future::ready(!matches!(result, Ok(bytes) if bytes.is_empty())))
         .boxed();
