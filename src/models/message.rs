@@ -31,14 +31,39 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn new(chat_id: Uuid, user_id: &str, text: &str, role: Role) -> Self {
-        Message {
+    pub async fn new(
+        pool: &PgPool,
+        chat_id: Uuid,
+        user_id: &str,
+        text: &str,
+        role: Role,
+    ) -> Result<Self, Error> {
+        let message = Message {
             chat_id,
             user_id: user_id.to_string(),
             text: text.to_string(),
             role,
             ..Default::default()
-        }
+        };
+
+        // Save the message to the database
+        query!(
+            r#"
+            INSERT INTO messages (id, chat_id, user_id, text, role, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+            message.id,
+            message.chat_id,
+            message.user_id,
+            message.text,
+            message.role.clone() as Role, // idk why this is needed but it is
+            message.created_at,
+            message.updated_at
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(message)
     }
 
     /// Create a new message from an OpenAI API request and saves to DB, either a user or assistant message.

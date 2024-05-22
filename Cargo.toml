@@ -28,7 +28,6 @@ shuttle-actix-web = "0.45.0"
 shuttle-persist = "0.45.0"
 shuttle-runtime = "0.45.0"
 sqlx = { version = "0.7", features = ["runtime-tokio", "tls-native-tls", "postgres", "macros", "time", "chrono"] }
-# tokenizers = { version = "0.15.2", features = ["http"] }
 tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1.40"
 uuid = { version = "1.8.0", features = ["serde", "v4"] }
