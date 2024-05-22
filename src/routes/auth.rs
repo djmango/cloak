@@ -167,7 +167,7 @@ async fn get_users(
 }
 
 /// Get all users from workos, async then get, create, or update them into the database
-#[get("/users/sync_workos")]
+#[get("/users/sync/workos")]
 async fn sync_users_workos(
     authenticated_user: AuthenticatedUser,
     app_config: web::Data<Arc<AppConfig>>,
@@ -188,7 +188,7 @@ async fn sync_users_workos(
 }
 
 /// Get all users, async PATCH them all to KeywordsAI API
-#[get("/users/sync_keywords")]
+#[get("/users/sync/keywords")]
 async fn sync_users_keywords(
     authenticated_user: AuthenticatedUser,
     app_config: web::Data<Arc<AppConfig>>,

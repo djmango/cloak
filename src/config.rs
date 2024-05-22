@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub aws_secret_access_key: String,
     pub stripe_secret_key: String,
     pub loops_api_key: String,
+    pub workos_webhook_signature: String,
 }
 
 impl AppConfig {
@@ -58,6 +59,10 @@ impl AppConfig {
             .get("LOOPS_API_KEY")
             .ok_or_else(|| anyhow!("LOOPS_API_KEY not found"))?;
 
+        let workos_webhook_signature = secret_store
+            .get("WORKOS_WEBHOOK_SIGNATURE")
+            .ok_or_else(|| anyhow!("WORKOS_WEBHOOK_SIGNATURE not found"))?;
+
         Ok(AppConfig {
             db_connection_uri: db_connection_string,
             keywords_api_key,
@@ -69,6 +74,7 @@ impl AppConfig {
             aws_secret_access_key,
             stripe_secret_key,
             loops_api_key,
+            workos_webhook_signature,
         })
     }
 }
