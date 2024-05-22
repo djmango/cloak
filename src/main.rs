@@ -70,7 +70,7 @@ async fn main(
                         .service(routes::pay::paid)
                         .service(routes::pay::payment_success),
                 )
-                .service(web::scope("/webhook").service(routes::webhook::create_user))
+                .service(web::scope("/webhook").service(routes::webhook::user_created))
                 .wrap(middleware::auth::AuthenticationMiddleware {
                     app_config: app_config.clone(),
                 })
