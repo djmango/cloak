@@ -1,16 +1,18 @@
 use crate::config::AppConfig;
 use crate::models::user::User;
 use crate::routes::auth::WorkOSUser;
+use crate::routes::pay::LoopsContact;
 use crate::AppState;
 use actix_web::HttpResponse;
 use actix_web::{post, web};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::error;
+use tracing::{debug, error};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorkOSCreateUserWebhookPayload {
@@ -103,6 +105,8 @@ pub async fn user_created(
         return Err(actix_web::error::ErrorUnauthorized("Invalid signature"));
     }
 
+    // Okay webhook is now validated
+
     let workos_users = vec![event.data.clone()];
 
     User::get_or_create_or_update_bulk_workos(&app_state.pool, workos_users)
@@ -111,6 +115,35 @@ pub async fn user_created(
             error!("Error creating user from webhook: {}", err);
             actix_web::error::ErrorInternalServerError("Error creating user from webhook")
         })?;
+
+    let loops_contact = LoopsContact {
+        email: event.data.email.clone(),
+        source: "app_signup".to_string(),
+    };
+    let loops_api_key = app_config.loops_api_key.clone();
+    let url = "https://app.loops.so/api/v1/contacts/create".to_string();
+
+    let send_future = async move {
+        let response = Client::new()
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", loops_api_key))
+            .header("Content-Type", "application/json")
+            .json(&loops_contact)
+            .send()
+            .await;
+
+        match response {
+            Ok(response) => {
+                debug!("Loops response: {:?}", response);
+            }
+            Err(e) => {
+                error!("Failed to send user invite to Loops: {:?}", e);
+            }
+        }
+    };
+
+    // Spawn a new task to send the request to Loops asynchronously
+    actix_web::rt::spawn(send_future);
 
     Ok(HttpResponse::Ok().finish())
 }
