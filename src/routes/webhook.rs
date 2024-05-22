@@ -22,8 +22,8 @@ pub struct WorkOSCreateUserWebhookPayload {
 
 type HmacSha256 = Hmac<Sha256>;
 
-#[post("/workos/create_user")]
-pub async fn create_user(
+#[post("/workos/user_created")]
+pub async fn user_created(
     app_state: web::Data<Arc<AppState>>,
     app_config: web::Data<Arc<AppConfig>>,
     req: actix_web::HttpRequest,
