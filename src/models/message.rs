@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
+#[serde(rename_all = "lowercase")] // JSON value name
 pub enum Role {
     Assistant,
     System,
