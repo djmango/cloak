@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO files (id, chat_id, user_id, message_id, filetype, show_to_user, url, created_at, updated_at)\n                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "filetype_enum",
+            "kind": {
+              "Enum": [
+                "jpeg",
+                "pdf",
+                "mp4",
+                "mp3"
+              ]
+            }
+          }
+        },
+        "Bool",
+        "Text",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2013cb726a7db22f7924444db2edc0d6745459982b05ef093b1646fe9d3b9c26"
+}

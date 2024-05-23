@@ -1,11 +1,12 @@
+use crate::models::file::{File, Filetype};
 use anyhow::Error;
-// use anyhow::{anyhow, Context, Result};
 use anyhow::Result;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestUserMessageContent,
 };
 use chrono::{DateTime, Utc};
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool, Type};
 use uuid::Uuid;
@@ -27,7 +28,6 @@ pub struct Message {
     pub user_id: String,
     pub text: String,
     pub role: Role,
-    pub files: Option<Vec<String>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -135,27 +135,57 @@ impl Message {
             user_id: user_id.to_string(),
             text: content,
             role,
-            files: if files.is_empty() { None } else { Some(files) },
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, files, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO messages (id, chat_id, user_id, text, role, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
             message.id,
             message.chat_id,
             message.user_id,
             message.text,
             message.role.clone() as Role, // idk why this is needed but it is
-            message.files.as_deref(),
             message.created_at,
             message.updated_at
         )
         .execute(pool)
         .await?;
+
+        // Join futures
+        let mut file_futres = Vec::new();
+        for file_url in files {
+            let file = File::new(
+                chat_id,
+                user_id,
+                message.id,
+                Filetype::Jpeg,
+                true,
+                Some(file_url),
+            );
+            let file_future = query!(
+                r#"
+                INSERT INTO files (id, chat_id, user_id, message_id, filetype, show_to_user, url, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                "#,
+                file.id,
+                file.chat_id,
+                file.user_id,
+                file.message_id,
+                file.filetype.clone() as Filetype,
+                file.show_to_user,
+                file.url,
+                file.created_at,
+                file.updated_at
+            )
+            .execute(pool);
+            file_futres.push(file_future);
+        }
+
+        join_all(file_futres).await;
 
         Ok(message)
     }
@@ -169,7 +199,6 @@ impl Default for Message {
             user_id: String::new(),
             text: String::new(),
             role: Role::User,
-            files: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
