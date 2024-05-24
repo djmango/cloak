@@ -1,6 +1,7 @@
 use crate::models::file::{File, Filetype};
 use anyhow::Error;
 use anyhow::Result;
+use async_openai::types::InvisibilityMetadata;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestUserMessageContent,
@@ -75,6 +76,7 @@ impl Message {
         oai_message: ChatCompletionRequestMessage,
         chat_id: Uuid,
         user_id: &str,
+        invisibility_metadata: Option<InvisibilityMetadata>,
     ) -> Result<Self> {
         // Determine the message content and role, and always ensure at least a blank string unless
         // its an unhandled message type
@@ -157,14 +159,27 @@ impl Message {
 
         // Join futures
         let mut file_futres = Vec::new();
-        for file_url in files {
+        for (index, file_url) in files.iter().enumerate() {
             let file = File::new(
                 chat_id,
                 user_id,
                 message.id,
                 Filetype::Jpeg,
-                true,
-                Some(file_url),
+                // Basically, what this block is doing is checking if the file should be shown to the user or not
+                // If the metadata is not present, it will default to true
+                // If the metadata is present, it will check if the file should be shown to the user or not
+                // If the metadata is present but out of index, it will default to true
+                invisibility_metadata
+                    .as_ref()
+                    .and_then(|metadata| {
+                        metadata
+                            .show_files_to_user
+                            .as_ref()
+                            .and_then(|show_files| show_files.get(index))
+                    })
+                    .copied()
+                    .unwrap_or(true),
+                Some(file_url.clone()),
             );
             let file_future = query!(
                 r#"
