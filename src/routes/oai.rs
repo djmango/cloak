@@ -20,7 +20,6 @@ use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-use tracing::info;
 use tracing::{debug, error};
 
 #[post("/v1/chat/completions")]
@@ -163,6 +162,7 @@ async fn chat(
         .invisibility
         .as_ref()
         .map(|invisibility| invisibility.chat_id);
+    let invisibility_metadata = request_args.invisibility.clone();
 
     // Create a future to store the user message, this also grabs the chat from the db for the
     // first and only time in this request
@@ -201,6 +201,7 @@ async fn chat(
                     last_oai_message,
                     chat.id,
                     &user_id_clone.clone(),
+                    invisibility_metadata,
                 )
                 .await
                 {
