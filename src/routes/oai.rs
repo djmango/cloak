@@ -19,6 +19,7 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error};
 
 #[post("/v1/chat/completions")]
@@ -150,44 +151,61 @@ async fn chat(
         )]));
     }
 
-    // invisibility struct will have our chat id if it exists
-    // match &request_args.invisibility {
-    //     Some(invisibility) => {
-    //         let chat_id = invisibility.chat_id;
-    //         let message = Message::new(
-    //             chat_id,
-    //             user_id,
-    //             "Chat started",
-    //             crate::models::message::Role::User,
-    //         );
-    //     }
-    //     None => {}
-    // }
-    // let message = Message::new(chat_id, user_id, text, role)
-    // NOTE okay notes for tmrw so we need to get_or_create a chat id
-    // then we need to create and save a message with that chat id
-    // then we do the stream
-    // then we do the same with the response
-    // and both of these need to happen in async off our current thread
-    //
-
+    // Shared Arc<Mutex<Option<Chat>>>> to store the chat
+    let shared_chat: Arc<TokioMutex<Option<Chat>>> = Arc::new(TokioMutex::new(None));
     let last_message_option = request_args.messages.last().cloned();
     let user_id = Arc::new(authenticated_user.user_id.clone());
+
+    // Determine the chat to use, either from invisibility or by creating new
+    if let Some(ref invisibility) = request_args.invisibility {
+        // Use chat_id from invisibility if it exists
+        Chat::get_or_create_arc(
+            Arc::clone(&app_state),
+            Arc::clone(&user_id),
+            Some(invisibility.chat_id),
+            shared_chat.clone(),
+        )
+        .await
+        .map_err(|e| {
+            error!("Error getting or creating chat: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e.to_string())
+        })?
+    } else {
+        // Create/Get the chat through the function
+        Chat::get_or_create_arc(
+            Arc::clone(&app_state),
+            Arc::clone(&user_id),
+            None,
+            shared_chat.clone(),
+        )
+        .await
+        .map_err(|e| {
+            error!("Error getting or creating chat: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e.to_string())
+        })?
+    };
 
     let user_message_future = {
         // Explicitly cloning the Arc for app_state and user_id
         let app_state_clone = Arc::clone(&app_state);
         let user_id_clone = Arc::clone(&user_id);
+        let shared_chat_clone = Arc::clone(&shared_chat);
 
         async move {
-            let chat =
-                match Chat::get_or_create_by_user_id(&app_state_clone.pool, &user_id_clone).await {
-                    Ok(chat) => chat,
-                    Err(e) => {
-                        error!("Error getting or creating chat: {:?}", e);
-                        return;
-                    }
-                };
+            let chat = match Chat::get_or_create_arc(
+                Arc::clone(&app_state_clone),
+                Arc::clone(&user_id_clone),
+                None,
+                Arc::clone(&shared_chat_clone),
+            )
+            .await
+            {
+                Ok(chat) => chat,
+                Err(e) => {
+                    error!("Error getting or creating chat: {:?}", e);
+                    return;
+                }
+            };
 
             if let Some(last_oai_message) = last_message_option {
                 match Message::from_oai(
@@ -286,6 +304,7 @@ async fn chat(
             let response_content_clone = Arc::clone(&response_content);
             let app_state_clone = Arc::clone(&app_state);
             let user_id_clone = Arc::clone(&user_id);
+            let shared_chat_clone = Arc::clone(&shared_chat);
 
             async move {
                 let content = response_content_clone.lock().await.clone();
@@ -296,8 +315,13 @@ async fn chat(
                     let user_id_clone = Arc::clone(&user_id_clone);
 
                     async move {
-                        match Chat::get_or_create_by_user_id(&app_state_clone.pool, &user_id_clone)
-                            .await
+                        match Chat::get_or_create_arc(
+                            Arc::clone(&app_state_clone),
+                            Arc::clone(&user_id_clone),
+                            None,
+                            Arc::clone(&shared_chat_clone),
+                        )
+                        .await
                         {
                             Ok(chat) => {
                                 if let Err(err) = Message::new(

@@ -1,11 +1,15 @@
-use anyhow::Error;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::debug;
 use uuid::Uuid;
 
-#[derive(Debug, FromRow, Serialize, Deserialize)]
+use crate::AppState;
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Chat {
     pub id: Uuid,
     pub user_id: String,
@@ -24,7 +28,7 @@ impl Chat {
     }
 
     /// Returns a chat for a given user_id, if it exists, otherwise creates a new chat and returns it.
-    pub async fn get_or_create_by_user_id(pool: &PgPool, user_id: &str) -> Result<Self, Error> {
+    pub async fn get_or_create_by_user_id(pool: &PgPool, user_id: &str) -> Result<Self> {
         if let Some(chat) = query_as!(
             Chat,
             r#"
@@ -58,6 +62,46 @@ impl Chat {
         .await?;
         debug!("Chat created: {:?}", chat);
         Ok(chat)
+    }
+
+    /// Returns a chat for a given chat_id or lastest one by user_id, if it exists, otherwise creates a new chat and returns it.
+    /// In addition, this function uses an Arc<Mutex<Option<Chat>>> to store the chat. This is useful when you want to share the chat between multiple threads.
+    pub async fn get_or_create_arc(
+        app_state: Arc<AppState>,
+        user_id: Arc<String>,
+        chat_id: Option<Uuid>,
+        chat: Arc<Mutex<Option<Chat>>>,
+    ) -> Result<Arc<Self>> {
+        // Lock the chat mutex
+        let mut chat_lock = chat.lock().await;
+
+        if chat_lock.is_none() {
+            // Create or fetch the chat if necessary
+            let new_chat = if let Some(chat_id) = chat_id {
+                // Fetch by chat_id
+                query_as!(
+                    Chat,
+                    r#"
+                    SELECT * FROM chats 
+                    WHERE id = $1
+                    "#,
+                    chat_id
+                )
+                .fetch_one(&app_state.pool)
+                .await?
+            } else {
+                // Get or create by user_id
+                Chat::get_or_create_by_user_id(&app_state.pool, &user_id).await?
+            };
+            // Assign the created chat
+            *chat_lock = Some(new_chat);
+        }
+
+        // Extract and clone the chat from the Option
+        match &*chat_lock {
+            Some(chat) => Ok(Arc::new(chat.clone())),
+            None => Err(anyhow!("Chat should be initialized but it is None")),
+        }
     }
 }
 
