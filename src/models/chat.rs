@@ -7,8 +7,6 @@ use tokio::sync::Mutex;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::AppState;
-
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Chat {
     pub id: Uuid,
@@ -67,7 +65,7 @@ impl Chat {
     /// Returns a chat for a given chat_id or lastest one by user_id, if it exists, otherwise creates a new chat and returns it.
     /// In addition, this function uses an Arc<Mutex<Option<Chat>>> to store the chat. This is useful when you want to share the chat between multiple threads.
     pub async fn get_or_create_arc(
-        app_state: Arc<AppState>,
+        pool: &PgPool,
         user_id: Arc<String>,
         chat_id: Option<Uuid>,
         chat: Arc<Mutex<Option<Chat>>>,
@@ -87,11 +85,11 @@ impl Chat {
                     "#,
                     chat_id
                 )
-                .fetch_one(&app_state.pool)
+                .fetch_one(pool)
                 .await?
             } else {
                 // Get or create by user_id
-                Chat::get_or_create_by_user_id(&app_state.pool, &user_id).await?
+                Chat::get_or_create_by_user_id(pool, &user_id).await?
             };
             // Assign the created chat
             *chat_lock = Some(new_chat);

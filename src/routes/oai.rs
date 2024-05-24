@@ -20,6 +20,7 @@ use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
+use tracing::info;
 use tracing::{debug, error};
 
 #[post("/v1/chat/completions")]
@@ -151,52 +152,39 @@ async fn chat(
         )]));
     }
 
-    // Shared Arc<Mutex<Option<Chat>>>> to store the chat
+    // Shared Arc<Mutex<Option<Chat>>>> to store the chat between the async block and the stream end without pulling it from the db again
     let shared_chat: Arc<TokioMutex<Option<Chat>>> = Arc::new(TokioMutex::new(None));
+    // Get the last message from the request
     let last_message_option = request_args.messages.last().cloned();
+    // Clone the user_id for use in the async block
     let user_id = Arc::new(authenticated_user.user_id.clone());
+    // Get an optional chat_id from the invisibility field if it exists
+    let chat_id = request_args
+        .invisibility
+        .as_ref()
+        .map(|invisibility| invisibility.chat_id);
 
-    // Determine the chat to use, either from invisibility or by creating new
-    if let Some(ref invisibility) = request_args.invisibility {
-        // Use chat_id from invisibility if it exists
-        Chat::get_or_create_arc(
-            Arc::clone(&app_state),
-            Arc::clone(&user_id),
-            Some(invisibility.chat_id),
-            shared_chat.clone(),
-        )
-        .await
-        .map_err(|e| {
-            error!("Error getting or creating chat: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e.to_string())
-        })?
-    } else {
-        // Create/Get the chat through the function
-        Chat::get_or_create_arc(
-            Arc::clone(&app_state),
-            Arc::clone(&user_id),
-            None,
-            shared_chat.clone(),
-        )
-        .await
-        .map_err(|e| {
-            error!("Error getting or creating chat: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e.to_string())
-        })?
-    };
-
-    let user_message_future = {
-        // Explicitly cloning the Arc for app_state and user_id
+    // Create a future to store the user message, this also grabs the chat from the db for the
+    // first and only time in this request
+    // Spawn a new task to store the user message asynchronously
+    actix_web::rt::spawn({
+        // Explicitly cloning the Arc for app_state and user_id. This is necessary because we use
+        // them later down the line, at stream end
         let app_state_clone = Arc::clone(&app_state);
-        let user_id_clone = Arc::clone(&user_id);
         let shared_chat_clone = Arc::clone(&shared_chat);
+        let user_id_clone = Arc::clone(&user_id);
 
         async move {
+            let app_state_clone = Arc::clone(&app_state_clone);
+            let shared_chat_clone = Arc::clone(&shared_chat_clone);
+            let user_id_clone = Arc::clone(&user_id_clone);
+
+            // Determine the chat to use, either from invisibility or by creating new
             let chat = match Chat::get_or_create_arc(
-                Arc::clone(&app_state_clone),
-                Arc::clone(&user_id_clone),
-                None,
-                Arc::clone(&shared_chat_clone),
+                &app_state_clone.pool,
+                user_id_clone.clone(),
+                chat_id,
+                shared_chat_clone,
             )
             .await
             {
@@ -212,7 +200,7 @@ async fn chat(
                     &app_state_clone.pool,
                     last_oai_message,
                     chat.id,
-                    &user_id_clone,
+                    &user_id_clone.clone(),
                 )
                 .await
                 {
@@ -227,10 +215,7 @@ async fn chat(
                 error!("No messages found in request_args.messages");
             }
         }
-    };
-
-    // Spawn a new task to store the user message asynchronously
-    actix_web::rt::spawn(user_message_future);
+    });
 
     let response = client
         .chat()
@@ -302,21 +287,25 @@ async fn chat(
         })
         .chain(futures::stream::once({
             let response_content_clone = Arc::clone(&response_content);
-            let app_state_clone = Arc::clone(&app_state);
-            let user_id_clone = Arc::clone(&user_id);
-            let shared_chat_clone = Arc::clone(&shared_chat);
+            // let app_state_clone = Arc::clone(&app_state);
+            // let user_id_clone = Arc::clone(&user_id);
 
             async move {
                 let content = response_content_clone.lock().await.clone();
                 debug!("Stream processing completed");
 
-                let save_message = {
-                    let app_state_clone = Arc::clone(&app_state_clone);
-                    let user_id_clone = Arc::clone(&user_id_clone);
+                // Spawn a new task to store the assistant message asynchronously
+                actix_web::rt::spawn({
+                    // let app_state_clone = Arc::clone(&app_state_clone);
+                    // let user_id_clone = Arc::clone(&user_id_clone);
+                    let shared_chat_clone = Arc::clone(&shared_chat);
+
+                    let app_state_clone = Arc::clone(&app_state);
+                    let user_id_clone = Arc::clone(&user_id);
 
                     async move {
                         match Chat::get_or_create_arc(
-                            Arc::clone(&app_state_clone),
+                            &app_state_clone.pool,
                             Arc::clone(&user_id_clone),
                             None,
                             Arc::clone(&shared_chat_clone),
@@ -341,9 +330,7 @@ async fn chat(
                             }
                         }
                     }
-                };
-
-                actix_web::rt::spawn(save_message);
+                });
 
                 Ok(Bytes::new()) as Result<Bytes, anyhow::Error>
             }
