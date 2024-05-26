@@ -38,7 +38,7 @@ pub async fn sync_all(
     let messages_future = query_as!(
         Message,
         r#"
-        SELECT id, chat_id, user_id, text, role as "role: Role", created_at, updated_at FROM messages
+        SELECT id, chat_id, user_id, text, role as "role: Role", regenerated, created_at, updated_at FROM messages
         WHERE user_id = $1
         "#,
         user_id

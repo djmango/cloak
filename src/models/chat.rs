@@ -1,9 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -26,7 +24,30 @@ impl Chat {
     }
 
     /// Returns a chat for a given user_id, if it exists, otherwise creates a new chat and returns it.
-    pub async fn get_or_create_by_user_id(pool: &PgPool, user_id: &str) -> Result<Self> {
+    pub async fn get_or_create_by_user_id_and_chat_id(
+        pool: &PgPool,
+        user_id: &str,
+        chat_id: Option<Uuid>,
+    ) -> Result<Self> {
+        // Fetch by chat_id if it exists
+        if let Some(chat_id) = chat_id {
+            if let Some(chat) = query_as!(
+                Chat,
+                r#"
+                SELECT * FROM chats 
+                WHERE id = $1
+                "#,
+                chat_id
+            )
+            .fetch_optional(pool)
+            .await?
+            {
+                debug!("Chat found: {:?}", chat);
+                return Ok(chat);
+            }
+        }
+
+        // Otherwise, fetch by user_id
         if let Some(chat) = query_as!(
             Chat,
             r#"
@@ -42,6 +63,7 @@ impl Chat {
             return Ok(chat);
         }
 
+        // Otherwise, create a new chat
         let chat = Chat::new(user_id, "New Chat");
         let chat = query_as!(
             Chat,
@@ -58,48 +80,9 @@ impl Chat {
         )
         .fetch_one(pool)
         .await?;
+
         debug!("Chat created: {:?}", chat);
         Ok(chat)
-    }
-
-    /// Returns a chat for a given chat_id or lastest one by user_id, if it exists, otherwise creates a new chat and returns it.
-    /// In addition, this function uses an Arc<Mutex<Option<Chat>>> to store the chat. This is useful when you want to share the chat between multiple threads.
-    pub async fn get_or_create_arc(
-        pool: &PgPool,
-        user_id: Arc<String>,
-        chat_id: Option<Uuid>,
-        chat: Arc<Mutex<Option<Chat>>>,
-    ) -> Result<Arc<Self>> {
-        // Lock the chat mutex
-        let mut chat_lock = chat.lock().await;
-
-        if chat_lock.is_none() {
-            // Create or fetch the chat if necessary
-            let new_chat = if let Some(chat_id) = chat_id {
-                // Fetch by chat_id
-                query_as!(
-                    Chat,
-                    r#"
-                    SELECT * FROM chats 
-                    WHERE id = $1
-                    "#,
-                    chat_id
-                )
-                .fetch_one(pool)
-                .await?
-            } else {
-                // Get or create by user_id
-                Chat::get_or_create_by_user_id(pool, &user_id).await?
-            };
-            // Assign the created chat
-            *chat_lock = Some(new_chat);
-        }
-
-        // Extract and clone the chat from the Option
-        match &*chat_lock {
-            Some(chat) => Ok(Arc::new(chat.clone())),
-            None => Err(anyhow!("Chat should be initialized but it is None")),
-        }
     }
 }
 

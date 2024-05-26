@@ -1,0 +1,2 @@
+ALTER TABLE messages
+ALTER COLUMN regenerated SET NOT NULL;

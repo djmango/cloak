@@ -19,8 +19,7 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 #[post("/v1/chat/completions")]
 async fn chat(
@@ -29,6 +28,7 @@ async fn chat(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
+    let start_time = chrono::Utc::now();
     debug!(
         "User {} hit the AI endpoint with model: {}",
         &authenticated_user.user_id, req_body.model
@@ -151,72 +151,17 @@ async fn chat(
         )]));
     }
 
-    // Shared Arc<Mutex<Option<Chat>>>> to store the chat between the async block and the stream end without pulling it from the db again
-    let shared_chat: Arc<TokioMutex<Option<Chat>>> = Arc::new(TokioMutex::new(None));
     // Get the last message from the request
     let last_message_option = request_args.messages.last().cloned();
     // Clone the user_id for use in the async block
-    let user_id = Arc::new(authenticated_user.user_id.clone());
+    let user_id = authenticated_user.user_id.clone();
     // Get an optional chat_id from the invisibility field if it exists
     let chat_id = request_args
         .invisibility
         .as_ref()
         .map(|invisibility| invisibility.chat_id);
+    // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
-
-    // Create a future to store the user message, this also grabs the chat from the db for the
-    // first and only time in this request
-    // Spawn a new task to store the user message asynchronously
-    actix_web::rt::spawn({
-        // Explicitly cloning the Arc for app_state and user_id. This is necessary because we use
-        // them later down the line, at stream end
-        let app_state_clone = Arc::clone(&app_state);
-        let shared_chat_clone = Arc::clone(&shared_chat);
-        let user_id_clone = Arc::clone(&user_id);
-
-        async move {
-            let app_state_clone = Arc::clone(&app_state_clone);
-            let shared_chat_clone = Arc::clone(&shared_chat_clone);
-            let user_id_clone = Arc::clone(&user_id_clone);
-
-            // Determine the chat to use, either from invisibility or by creating new
-            let chat = match Chat::get_or_create_arc(
-                &app_state_clone.pool,
-                user_id_clone.clone(),
-                chat_id,
-                shared_chat_clone,
-            )
-            .await
-            {
-                Ok(chat) => chat,
-                Err(e) => {
-                    error!("Error getting or creating chat: {:?}", e);
-                    return;
-                }
-            };
-
-            if let Some(last_oai_message) = last_message_option {
-                match Message::from_oai(
-                    &app_state_clone.pool,
-                    last_oai_message,
-                    chat.id,
-                    &user_id_clone.clone(),
-                    invisibility_metadata,
-                )
-                .await
-                {
-                    Ok(message) => {
-                        debug!("Message created from OAI message: {:?}", message);
-                    }
-                    Err(e) => {
-                        error!("Error creating message from OAI message: {:?}", e);
-                    }
-                };
-            } else {
-                error!("No messages found in request_args.messages");
-            }
-        }
-    });
 
     let response = client
         .chat()
@@ -230,6 +175,7 @@ async fn chat(
     // This logging has a non-zero cost, but its essentially trival, less than 5 microseconds theorectically
     let response_content = Arc::new(Mutex::new(String::new()));
 
+    // Create a stream that processes the response from llm host and stores the resulting assistant message
     let stream = response
         .take_while(|item_result| match item_result {
             Ok(item) => {
@@ -288,47 +234,85 @@ async fn chat(
         })
         .chain(futures::stream::once({
             let response_content_clone = Arc::clone(&response_content);
-            // let app_state_clone = Arc::clone(&app_state);
-            // let user_id_clone = Arc::clone(&user_id);
 
             async move {
                 let content = response_content_clone.lock().await.clone();
                 debug!("Stream processing completed");
 
-                // Spawn a new task to store the assistant message asynchronously
+                // Spawn a new task to store the results in the database asynchonously
                 actix_web::rt::spawn({
-                    // let app_state_clone = Arc::clone(&app_state_clone);
-                    // let user_id_clone = Arc::clone(&user_id_clone);
-                    let shared_chat_clone = Arc::clone(&shared_chat);
-
-                    let app_state_clone = Arc::clone(&app_state);
-                    let user_id_clone = Arc::clone(&user_id);
-
                     async move {
-                        match Chat::get_or_create_arc(
-                            &app_state_clone.pool,
-                            Arc::clone(&user_id_clone),
-                            None,
-                            Arc::clone(&shared_chat_clone),
+                        // Determine the chat to use, either from invisibility or by creating new
+                        let chat = match Chat::get_or_create_by_user_id_and_chat_id(
+                            &app_state.pool,
+                            user_id.clone().as_str(),
+                            chat_id,
                         )
                         .await
                         {
-                            Ok(chat) => {
-                                if let Err(err) = Message::new(
-                                    &app_state_clone.pool,
-                                    chat.id,
-                                    &chat.user_id,
-                                    &content,
-                                    crate::models::message::Role::Assistant,
+                            Ok(chat) => chat,
+                            Err(e) => {
+                                error!("Error getting or creating chat: {:?}", e);
+                                return;
+                            }
+                        };
+
+                        // If the metadata includes a regenerate_from_message_id, mark the messages after that
+                        // in the chat as regenerated
+                        if let Some(invisibility_metadata) = invisibility_metadata.clone() {
+                            info!("Invisibility metadata: {:?}", invisibility_metadata);
+
+                            if let Some(regenerate_from_message_id) =
+                                invisibility_metadata.regenerate_from_message_id
+                            {
+                                info!(
+                                    "Marking chat as regenerated from message_id: {:?}",
+                                    regenerate_from_message_id
+                                );
+                                if let Err(e) = Message::mark_regenerated_from_message_id(
+                                    &app_state.pool,
+                                    regenerate_from_message_id,
                                 )
                                 .await
                                 {
-                                    error!("Failed to create message: {:?}", err);
+                                    error!("Error marking chat as regenerated: {:?}", e);
                                 }
                             }
-                            Err(e) => {
-                                error!("Error getting or creating chat: {:?}", e);
-                            }
+                        }
+
+                        // Insert into db a message, the last OAI message (prompt). This should always be a user message
+                        if let Some(last_oai_message) = last_message_option {
+                            match Message::from_oai(
+                                &app_state.pool,
+                                last_oai_message,
+                                chat.id,
+                                &user_id.clone(),
+                                invisibility_metadata,
+                                Some(start_time),
+                            )
+                            .await
+                            {
+                                Ok(message) => {
+                                    debug!("Message created from OAI message: {:?}", message);
+                                }
+                                Err(e) => {
+                                    error!("Error creating message from OAI message: {:?}", e);
+                                }
+                            };
+                        } else {
+                            error!("No messages found in request_args.messages");
+                        }
+
+                        if let Err(err) = Message::new(
+                            &app_state.pool,
+                            chat.id,
+                            &chat.user_id,
+                            &content,
+                            crate::models::message::Role::Assistant,
+                        )
+                        .await
+                        {
+                            error!("Failed to create message: {:?}", err);
                         }
                     }
                 });

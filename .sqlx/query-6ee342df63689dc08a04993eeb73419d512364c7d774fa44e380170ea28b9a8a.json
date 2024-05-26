@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, chat_id, user_id, text, role as \"role: Role\", created_at, updated_at FROM messages\n        WHERE user_id = $1\n        ",
+  "query": "\n        SELECT id, chat_id, user_id, text, role as \"role: Role\", regenerated, created_at, updated_at FROM messages\n        WHERE user_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -42,11 +42,16 @@
       },
       {
         "ordinal": 5,
+        "name": "regenerated",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -63,8 +68,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "0f7a1b547726b48d7d8840c589fd069a2eca1951cc1cdc564055f2f704730466"
+  "hash": "6ee342df63689dc08a04993eeb73419d512364c7d774fa44e380170ea28b9a8a"
 }

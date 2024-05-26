@@ -1,10 +1,8 @@
 use crate::models::file::{File, Filetype};
-use anyhow::Error;
 use anyhow::Result;
-use async_openai::types::InvisibilityMetadata;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestUserMessageContent,
+    ChatCompletionRequestUserMessageContent, InvisibilityMetadata,
 };
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
@@ -29,8 +27,24 @@ pub struct Message {
     pub user_id: String,
     pub text: String,
     pub role: Role,
+    pub regenerated: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Default for Message {
+    fn default() -> Self {
+        Message {
+            id: Uuid::new_v4(),
+            chat_id: Uuid::nil(),
+            user_id: String::new(),
+            text: String::new(),
+            role: Role::User,
+            regenerated: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
 }
 
 impl Message {
@@ -40,7 +54,7 @@ impl Message {
         user_id: &str,
         text: &str,
         role: Role,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self> {
         let message = Message {
             chat_id,
             user_id: user_id.to_string(),
@@ -52,14 +66,15 @@ impl Message {
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
             message.id,
             message.chat_id,
             message.user_id,
             message.text,
             message.role.clone() as Role, // idk why this is needed but it is
+            message.regenerated,
             message.created_at,
             message.updated_at
         )
@@ -77,6 +92,7 @@ impl Message {
         chat_id: Uuid,
         user_id: &str,
         invisibility_metadata: Option<InvisibilityMetadata>,
+        created_at: Option<DateTime<Utc>>,
     ) -> Result<Self> {
         // Determine the message content and role, and always ensure at least a blank string unless
         // its an unhandled message type
@@ -132,25 +148,39 @@ impl Message {
             _ => return Err(anyhow::anyhow!("Unsupported message type")),
         };
 
+        // let id = match role {
+        //     Role::Assistant => invisibility_metadata
+        //         .as_ref()
+        //         .map_or_else(Uuid::new_v4, |metadata| metadata.assistant_message_id),
+        //     _ => invisibility_metadata
+        //         .as_ref()
+        //         .map_or_else(Uuid::new_v4, |metadata| metadata.user_message_id),
+        // };
+
         let message = Message {
+            id: invisibility_metadata
+                .as_ref()
+                .map_or_else(Uuid::new_v4, |metadata| metadata.user_message_id),
             chat_id,
             user_id: user_id.to_string(),
             text: content,
             role,
+            created_at: created_at.unwrap_or_else(Utc::now),
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
             message.id,
             message.chat_id,
             message.user_id,
             message.text,
             message.role.clone() as Role, // idk why this is needed but it is
+            message.regenerated,
             message.created_at,
             message.updated_at
         )
@@ -204,19 +234,30 @@ impl Message {
 
         Ok(message)
     }
-}
 
-impl Default for Message {
-    fn default() -> Self {
-        Message {
-            id: Uuid::new_v4(),
-            chat_id: Uuid::nil(),
-            user_id: String::new(),
-            text: String::new(),
-            role: Role::User,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        }
+    /// Regenerate messages based on a given message ID.
+    pub async fn mark_regenerated_from_message_id(pool: &PgPool, message_id: Uuid) -> Result<()> {
+        // SQL query to update the regenerated flag
+        let query_str = r#"
+            WITH msg AS (
+                SELECT chat_id, created_at, user_id
+                FROM messages
+                WHERE id = $1
+            )
+            UPDATE messages
+            SET regenerated = true
+            WHERE chat_id = (SELECT chat_id FROM msg)
+              AND created_at >= (SELECT created_at FROM msg)
+              AND user_id = (SELECT user_id FROM msg)
+        "#;
+
+        // Perform the query
+        query(query_str)
+            .bind(message_id) // Bind the message id
+            .execute(pool)
+            .await?;
+
+        Ok(())
     }
 }
 
