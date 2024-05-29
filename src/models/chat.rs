@@ -15,14 +15,6 @@ pub struct Chat {
 }
 
 impl Chat {
-    pub fn new(user_id: &str, name: &str) -> Self {
-        Chat {
-            user_id: user_id.to_string(),
-            name: name.to_string(),
-            ..Default::default()
-        }
-    }
-
     /// Returns a chat for a given user_id, if it exists, otherwise creates a new chat and returns it.
     pub async fn get_or_create_by_user_id_and_chat_id(
         pool: &PgPool,
@@ -45,6 +37,27 @@ impl Chat {
                 debug!("Chat found: {:?}", chat);
                 return Ok(chat);
             }
+
+            // If chat_id is provided but not found, create a new chat with the provided chat_id and user_id
+            if let Some(chat) = query_as!(
+                Chat,
+                r#"
+                INSERT INTO chats (id, user_id, name, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING *
+                "#,
+                chat_id,
+                user_id,
+                "New Chat",
+                Utc::now(),
+                Utc::now()
+            )
+            .fetch_optional(pool)
+            .await?
+            {
+                debug!("Chat created: {:?}", chat);
+                return Ok(chat);
+            }
         }
 
         // Otherwise, fetch by user_id
@@ -64,7 +77,11 @@ impl Chat {
         }
 
         // Otherwise, create a new chat
-        let chat = Chat::new(user_id, "New Chat");
+        let chat = Chat {
+            user_id: user_id.to_string(),
+            name: "New Chat".to_string(),
+            ..Default::default()
+        };
         let chat = query_as!(
             Chat,
             r#"
