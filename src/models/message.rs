@@ -110,27 +110,7 @@ impl Message {
                                     concatenated_text.push_str(&text_part.text);
                                 }
                             }
-                            ChatCompletionRequestMessageContentPart::Image(image_part) => {
-                                // let image_data =
-                                //     if image_part.image_url.url.starts_with("data:image/") {
-                                //         let base64_data = image_part
-                                //             .image_url
-                                //             .url
-                                //             .split(',')
-                                //             .nth(1)
-                                //             .context("Invalid base64 data")?;
-                                //         general_purpose::STANDARD
-                                //             .decode(base64_data)
-                                //             .context("Failed to decode base64 data")?
-                                //     } else {
-                                //         let response =
-                                //             reqwest::get(&image_part.image_url.url).await?;
-                                //         response.bytes().await?.to_vec()
-                                //     };
-
-                                // let file_name = format!("{}.png", Uuid::new_v4());
-                                // let file_url =
-                                //     upload_to_cloudflare(&image_data, &file_name).await?;
+                            ChatCompletionRequestMessageContentPart::ImageUrl(image_part) => {
                                 file_urls.push(image_part.image_url.url.clone());
                             }
                         }
@@ -147,15 +127,6 @@ impl Message {
             }
             _ => return Err(anyhow::anyhow!("Unsupported message type")),
         };
-
-        // let id = match role {
-        //     Role::Assistant => invisibility_metadata
-        //         .as_ref()
-        //         .map_or_else(Uuid::new_v4, |metadata| metadata.assistant_message_id),
-        //     _ => invisibility_metadata
-        //         .as_ref()
-        //         .map_or_else(Uuid::new_v4, |metadata| metadata.user_message_id),
-        // };
 
         let message = Message {
             id: invisibility_metadata
@@ -260,16 +231,3 @@ impl Message {
         Ok(())
     }
 }
-
-// async fn upload_to_cloudflare(image_data: &[u8], file_name: &str) -> Result<String> {
-//     let client = Client::new();
-//     let url = format!("https://your-cloudflare-r2-endpoint/{}", file_name);
-
-//     let response = client.put(&url).body(image_data.to_vec()).send().await?;
-
-//     if response.status().is_success() {
-//         Ok(url)
-//     } else {
-//         Err(anyhow!("Failed to upload image to Cloudflare"))
-//     }
-// }
