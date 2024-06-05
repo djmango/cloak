@@ -111,7 +111,6 @@ async fn chat(
                     }) {
                         array.push(
                             ChatCompletionRequestMessageContentPartText {
-                                r#type: "text".to_string(),
                                 text: "image attached".to_string(),
                             }
                             .into(),
