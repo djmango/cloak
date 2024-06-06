@@ -29,7 +29,7 @@ pub async fn sync_all(
         Chat,
         r#"
         SELECT * FROM chats
-        WHERE user_id = $1
+        WHERE user_id = $1 AND deleted_at IS NULL
         "#,
         user_id
     )
@@ -39,7 +39,7 @@ pub async fn sync_all(
         Message,
         r#"
         SELECT id, chat_id, user_id, text, role as "role: Role", regenerated, created_at, updated_at FROM messages
-        WHERE user_id = $1
+        WHERE user_id = $1 AND chat_id IN (SELECT id FROM chats WHERE user_id = $1 AND deleted_at IS NULL)
         "#,
         user_id
     )
@@ -49,7 +49,7 @@ pub async fn sync_all(
         File,
         r#"
         SELECT id, chat_id, user_id, message_id, filetype as "filetype: Filetype", show_to_user, url, created_at, updated_at FROM files
-        WHERE user_id = $1
+        WHERE user_id = $1 AND chat_id IN (SELECT id FROM chats WHERE user_id = $1 AND deleted_at IS NULL)
         "#,
         user_id
     )

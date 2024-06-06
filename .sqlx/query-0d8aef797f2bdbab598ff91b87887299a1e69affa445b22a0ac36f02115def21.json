@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, chat_id, user_id, message_id, filetype as \"filetype: Filetype\", show_to_user, url, created_at, updated_at FROM files\n        WHERE user_id = $1\n        ",
+  "query": "\n        SELECT id, chat_id, user_id, text, role as \"role: Role\", regenerated, created_at, updated_at FROM messages\n        WHERE user_id = $1 AND chat_id IN (SELECT id FROM chats WHERE user_id = $1 AND deleted_at IS NULL)\n        ",
   "describe": {
     "columns": [
       {
@@ -20,21 +20,21 @@
       },
       {
         "ordinal": 3,
-        "name": "message_id",
-        "type_info": "Uuid"
+        "name": "text",
+        "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "filetype: Filetype",
+        "name": "role: Role",
         "type_info": {
           "Custom": {
-            "name": "filetype_enum",
+            "name": "role_enum",
             "kind": {
               "Enum": [
-                "jpeg",
-                "pdf",
-                "mp4",
-                "mp3"
+                "assistant",
+                "system",
+                "tool",
+                "user"
               ]
             }
           }
@@ -42,21 +42,16 @@
       },
       {
         "ordinal": 5,
-        "name": "show_to_user",
+        "name": "regenerated",
         "type_info": "Bool"
       },
       {
         "ordinal": 6,
-        "name": "url",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -73,10 +68,9 @@
       false,
       false,
       false,
-      true,
       false,
       false
     ]
   },
-  "hash": "a60921ce24bd3c6d5e5f3fd7760190d56c8d0e89991940204d7f0e222ecde069"
+  "hash": "0d8aef797f2bdbab598ff91b87887299a1e69affa445b22a0ac36f02115def21"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT * FROM chats\n        WHERE user_id = $1\n        ",
+  "query": "\n            UPDATE chats\n            SET name = $1, updated_at = $2\n            WHERE id = $3 AND user_id = $4\n            RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -27,10 +27,18 @@
         "ordinal": 4,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
+        "Timestamptz",
+        "Uuid",
         "Text"
       ]
     },
@@ -39,8 +47,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "fb27949911447a4ee5d05b2d1360937119c7212db467e097fd4a0999aa40836d"
+  "hash": "86d87dbdee407f93239fa8aba06542cc8142916a5472daeb462aeb5e9211d538"
 }

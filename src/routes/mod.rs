@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod chat;
 pub mod hello;
 pub mod oai;
 pub mod pay;

@@ -27,6 +27,11 @@
         "ordinal": 4,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -39,7 +44,8 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
   "hash": "4653be5f6f92b495177658f8ed499766b9a72350b8bdf9c4910c6a684ec82c71"
