@@ -10,8 +10,22 @@ pub struct Chat {
     pub id: Uuid,
     pub user_id: String,
     pub name: String,
+    pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Default for Chat {
+    fn default() -> Self {
+        Chat {
+            id: Uuid::new_v4(),
+            user_id: String::new(),
+            name: String::new(),
+            deleted_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
 }
 
 impl Chat {
@@ -101,16 +115,51 @@ impl Chat {
         debug!("Chat created: {:?}", chat);
         Ok(chat)
     }
-}
 
-impl Default for Chat {
-    fn default() -> Self {
-        Chat {
-            id: Uuid::new_v4(),
-            user_id: String::new(),
-            name: String::new(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        }
+    /// Updates the name of the chat
+    pub async fn update_name(
+        pool: &PgPool,
+        chat_id: Uuid,
+        user_id: &str,
+        new_name: &str,
+    ) -> Result<Self> {
+        let chat = query_as!(
+            Chat,
+            r#"
+            UPDATE chats
+            SET name = $1, updated_at = $2
+            WHERE id = $3 AND user_id = $4
+            RETURNING *
+            "#,
+            new_name,
+            Utc::now(),
+            chat_id,
+            user_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        debug!("Chat updated: {:?}", chat);
+        Ok(chat)
+    }
+
+    /// Soft deletes a chat by chat_id and user_id
+    pub async fn delete(pool: &PgPool, chat_id: Uuid, user_id: &str) -> Result<()> {
+        query_as!(
+            Chat,
+            r#"
+            UPDATE chats
+            SET deleted_at = $1
+            WHERE id = $2 AND user_id = $3
+            "#,
+            Utc::now(),
+            chat_id,
+            user_id
+        )
+        .execute(pool)
+        .await?;
+
+        debug!("Chat soft-deleted with id: {:?}", chat_id);
+        Ok(())
     }
 }

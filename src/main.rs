@@ -57,6 +57,11 @@ async fn main(
                         .service(routes::auth::signup),
                 )
                 .service(
+                    web::scope("/chats")
+                        .service(routes::chat::delete_chat)
+                        .service(routes::chat::update_chat),
+                )
+                .service(
                     web::scope("/oai")
                         .service(routes::oai::chat)
                         .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
