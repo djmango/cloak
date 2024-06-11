@@ -59,7 +59,8 @@ async fn main(
                 .service(
                     web::scope("/chats")
                         .service(routes::chat::delete_chat)
-                        .service(routes::chat::update_chat),
+                        .service(routes::chat::update_chat)
+                        .service(routes::chat::autorename_chat),
                 )
                 .service(
                     web::scope("/oai")
