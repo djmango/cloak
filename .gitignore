@@ -2,4 +2,4 @@
 .env
 .shuttle-storage
 /target
-Secrets*.toml
+Secrets.toml
