@@ -40,7 +40,7 @@ async fn autorename_chat(
         autorename_chat_request.text.clone()
     } else {
         // Get the text of the oldest non-regenerated message given the chat id and user id
-        let pool = &app_state.pool; // Assuming you have a database connection pool in your AppState
+        let pool = &app_state.pool;
 
         let result: String = query_scalar!(
             r#"

@@ -89,7 +89,7 @@ async fn signup() -> Result<impl Responder, Error> {
     Ok(web::Redirect::to(url))
 }
 
-/// The callback URL for the WorkOS authentication flow
+/// The callback URL for the WorkOS authentication flow for the desktop app
 #[get("/workos/callback")]
 async fn auth_callback(
     app_config: web::Data<Arc<AppConfig>>,
@@ -107,6 +107,50 @@ async fn auth_callback(
 
     // Redirect to the invisibility deep link with the JWT
     let redirect_url = format!("invisibility://auth_callback?token={}", jwt);
+    info!("Redirecting to: {}", redirect_url);
+    Ok(web::Redirect::to(redirect_url))
+}
+
+/// The callback URL for the WorkOS authentication flow for the web app
+#[get("/workos/callback_nextweb")]
+async fn auth_callback_nextweb(
+    app_config: web::Data<Arc<AppConfig>>,
+    info: web::Query<AuthCallbackQuery>,
+) -> Result<impl Responder, actix_web::Error> {
+    let code = &info.code;
+    // Exchange the code for user information using the WorkOS API
+    let auth_response = exchange_code_for_user(code, app_config.get_ref().clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    // Sign a JWT with the user info
+    let jwt = sign_jwt(&auth_response.user, app_config.get_ref().clone())
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    // Redirect to the invisibility deep link with the JWT
+    let redirect_url = format!("https://chat.i.inc/auth_callback?token={}", jwt);
+    info!("Redirecting to: {}", redirect_url);
+    Ok(web::Redirect::to(redirect_url))
+}
+
+/// The callback URL for the WorkOS authentication flow for the web app
+#[get("/workos/callback_nextweb_dev")]
+async fn auth_callback_nextweb_dev(
+    app_config: web::Data<Arc<AppConfig>>,
+    info: web::Query<AuthCallbackQuery>,
+) -> Result<impl Responder, actix_web::Error> {
+    let code = &info.code;
+    // Exchange the code for user information using the WorkOS API
+    let auth_response = exchange_code_for_user(code, app_config.get_ref().clone())
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    // Sign a JWT with the user info
+    let jwt = sign_jwt(&auth_response.user, app_config.get_ref().clone())
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    // Redirect to the invisibility deep link with the JWT
+    let redirect_url = format!("http://localhost:3000/auth_callback?token={}", jwt);
     info!("Redirecting to: {}", redirect_url);
     Ok(web::Redirect::to(redirect_url))
 }
