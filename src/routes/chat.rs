@@ -10,6 +10,7 @@ use async_openai::types::{
 };
 use async_openai::Client;
 use serde::Deserialize;
+use sqlx::query_scalar;
 use std::sync::Arc;
 use tracing::error;
 use uuid::Uuid;
@@ -29,9 +30,39 @@ async fn autorename_chat(
     app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
     chat_id: web::Path<Uuid>,
-    web::Json(autorename_chat_request): web::Json<AutorenameChatRequest>,
+    autorename_chat_request: Option<web::Json<AutorenameChatRequest>>,
 ) -> Result<web::Json<Chat>, Error> {
     let client: Client<OpenAIConfig> = app_state.keywords_client.clone();
+    let user_id = authenticated_user.user_id;
+    let chat_id = chat_id.into_inner();
+
+    let message_text = if let Some(autorename_chat_request) = autorename_chat_request {
+        autorename_chat_request.text.clone()
+    } else {
+        // Get the text of the oldest non-regenerated message given the chat id and user id
+        let pool = &app_state.pool; // Assuming you have a database connection pool in your AppState
+
+        let result: String = query_scalar!(
+            r#"
+            SELECT text FROM messages
+            WHERE chat_id = $1
+            AND user_id = $2
+            AND regenerated = false
+            ORDER BY created_at ASC
+            LIMIT 1
+            "#,
+            chat_id,
+            user_id
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            error!("Database query returned no results: {}", e);
+            actix_web::error::ErrorNotFound(e)
+        })?;
+
+        result
+    };
 
     let request = CreateChatCompletionRequest {
         messages: vec![
@@ -48,7 +79,7 @@ async fn autorename_chat(
             ChatCompletionRequestMessage::User( ChatCompletionRequestUserMessage {
                 content: ChatCompletionRequestUserMessageContent::Text(format!(
                     "Create a concise, 3-5 word phrase as a header for the following. Please return only the 3-5 word header and no additional words or characters: \"{}\"",
-                    autorename_chat_request.text
+                    message_text
                 )),
                 ..Default::default()
             },
@@ -70,17 +101,12 @@ async fn autorename_chat(
         .and_then(|choice| choice.message.content.clone())
         .unwrap_or("New Chat".to_string());
 
-    let chat = Chat::update_name(
-        &app_state.pool,
-        chat_id.into_inner(),
-        &authenticated_user.user_id,
-        &name,
-    )
-    .await
-    .map_err(|e| {
-        error!("Failed to update chat: {:?}", e);
-        actix_web::error::ErrorInternalServerError(e)
-    })?;
+    let chat = Chat::update_name(&app_state.pool, chat_id, &user_id, &name)
+        .await
+        .map_err(|e| {
+            error!("Failed to update chat: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
     Ok(web::Json(chat))
 }
 
