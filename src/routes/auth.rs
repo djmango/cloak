@@ -107,7 +107,6 @@ async fn auth_callback(
 
     // Redirect to the invisibility deep link with the JWT
     let redirect_url = format!("invisibility://auth_callback?token={}", jwt);
-    info!("Redirecting to: {}", redirect_url);
     Ok(web::Redirect::to(redirect_url))
 }
 
@@ -128,8 +127,7 @@ async fn auth_callback_nextweb(
         .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
     // Redirect to the invisibility deep link with the JWT
-    let redirect_url = format!("https://chat.i.inc/api/auth_callback?token={}", jwt);
-    info!("Redirecting to: {}", redirect_url);
+    let redirect_url = format!("https://chat.i.inc/auth_callback?token={}", jwt);
     Ok(web::Redirect::to(redirect_url))
 }
 
@@ -150,8 +148,7 @@ async fn auth_callback_nextweb_dev(
         .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
     // Redirect to the invisibility deep link with the JWT
-    let redirect_url = format!("http://localhost:3000/api/auth_callback?token={}", jwt);
-    info!("Redirecting to: {}", redirect_url);
+    let redirect_url = format!("http://localhost:3000/auth_callback?token={}", jwt);
     Ok(web::Redirect::to(redirect_url))
 }
 
