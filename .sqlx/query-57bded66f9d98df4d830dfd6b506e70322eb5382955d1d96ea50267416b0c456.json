@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT text FROM messages\n            WHERE chat_id = $1\n            AND user_id = $2\n            AND regenerated = false\n            ORDER BY created_at ASC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "text",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "57bded66f9d98df4d830dfd6b506e70322eb5382955d1d96ea50267416b0c456"
+}

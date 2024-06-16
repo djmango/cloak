@@ -19,7 +19,7 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 #[post("/v1/chat/completions")]
 async fn chat(
@@ -259,15 +259,9 @@ async fn chat(
                         // If the metadata includes a regenerate_from_message_id, mark the messages after that
                         // in the chat as regenerated
                         if let Some(invisibility_metadata) = invisibility_metadata.clone() {
-                            info!("Invisibility metadata: {:?}", invisibility_metadata);
-
                             if let Some(regenerate_from_message_id) =
                                 invisibility_metadata.regenerate_from_message_id
                             {
-                                info!(
-                                    "Marking chat as regenerated from message_id: {:?}",
-                                    regenerate_from_message_id
-                                );
                                 if let Err(e) = Message::mark_regenerated_from_message_id(
                                     &app_state.pool,
                                     regenerate_from_message_id,
