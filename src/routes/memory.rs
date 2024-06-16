@@ -289,6 +289,11 @@ async fn chat_with_memory(
                     match item_result {
                         Ok(item) => {
                             if let Some(chat_choice_stream) = item.choices.first() {
+                                if let Some(tool_calls) = &chat_choice_stream.delta.tool_calls {
+                                    for (_i, tool_call_chunk) in tool_calls.into_iter().enumerate() {
+                                        debug!("Tool call chunk: {:?}", tool_call_chunk);
+                                    }
+                                }
                                 if let Some(new_response_content) =
                                     &chat_choice_stream.delta.content
                                 {
