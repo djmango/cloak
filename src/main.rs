@@ -48,6 +48,8 @@ async fn main(
                 .service(
                     web::scope("/auth")
                         .service(routes::auth::auth_callback)
+                        .service(routes::auth::auth_callback_nextweb)
+                        .service(routes::auth::auth_callback_nextweb_dev)
                         .service(routes::auth::get_user)
                         .service(routes::auth::get_users)
                         .service(routes::auth::sync_users_workos)
