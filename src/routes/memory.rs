@@ -21,7 +21,7 @@ use serde_json::{json, to_string};
 use std::sync::Arc;
 use tracing::{debug, error, info};
 
-#[post("/v1/chat/completions/")]
+#[post("/v1/chat/completions")]
 async fn chat_with_memory(
     app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
