@@ -51,7 +51,12 @@ impl Memory {
         Ok(memory)
     }
 
-    pub async fn update_memory(pool: &PgPool, memory_id: Uuid, new_memory: &str, user_id: &str) -> Result<Self> {
+    pub async fn update_memory(
+        pool: &PgPool,
+        memory_id: Uuid,
+        new_memory: &str,
+        user_id: &str,
+    ) -> Result<Self> {
         let now_utc = Utc::now();
 
         let memory = query_as!(

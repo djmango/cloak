@@ -1,4 +1,3 @@
-use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
 use crate::models::message::Message;
@@ -9,10 +8,8 @@ use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
-    CreateChatCompletionRequest, ChatCompletionMessageToolCall,
-    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestToolMessageArgs,
-    ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolType,
-    FinishReason, FunctionCall, FunctionObjectArgs,
+    ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequest,
+    FunctionObjectArgs,
 };
 
 use async_openai::Client;
@@ -20,17 +17,13 @@ use bytes::Bytes;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
-use serde_json::to_string;
-use std::collections::HashMap;
+use serde_json::{json, to_string};
 use std::sync::Arc;
 use tracing::{debug, error, info};
-use serde_json::{json, Value};
-
 
 #[post("/v1/chat/completions/")]
 async fn chat_with_memory(
     app_state: web::Data<Arc<AppState>>,
-    app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
@@ -81,9 +74,17 @@ async fn chat_with_memory(
                         },
                         "required": ["location"],
                     }))
-                    .build()?,
+                    .build()
+                    .map_err(|e| {
+                        error!("Error creating get_current_weather function: {:?}", e);
+                        actix_web::error::ErrorInternalServerError(e.to_string())
+                    })?,
             )
-            .build()?,
+            .build()
+            .map_err(|e| {
+                error!("Error creating get_current_weather tool: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e.to_string())
+            })?,
         ChatCompletionToolArgs::default()
             .r#type(ChatCompletionToolType::Function)
             .function(
@@ -100,9 +101,17 @@ async fn chat_with_memory(
                         },
                         "required": ["memory"],
                     }))
-                    .build()?,
+                    .build()
+                    .map_err(|e| {
+                        error!("Error creating create_memory function: {:?}", e);
+                        actix_web::error::ErrorInternalServerError(e.to_string())
+                    })?,
             )
-            .build()?,
+            .build()
+            .map_err(|e| {
+                error!("Error creating create_memory tool: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e.to_string())
+            })?,
         ChatCompletionToolArgs::default()
             .r#type(ChatCompletionToolType::Function)
             .function(
@@ -123,9 +132,17 @@ async fn chat_with_memory(
                         },
                         "required": ["memory_id", "new_memory"],
                     }))
-                    .build()?,
+                    .build()
+                    .map_err(|e| {
+                        error!("Error creating update_memory function: {:?}", e);
+                        actix_web::error::ErrorInternalServerError(e.to_string())
+                    })?,
             )
-            .build()?,
+            .build()
+            .map_err(|e| {
+                error!("Error creating update_memory tool: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e.to_string())
+            })?,
         ChatCompletionToolArgs::default()
             .r#type(ChatCompletionToolType::Function)
             .function(
@@ -142,9 +159,17 @@ async fn chat_with_memory(
                         },
                         "required": ["memory_id"],
                     }))
-                    .build()?,
+                    .build()
+                    .map_err(|e| {
+                        error!("Error creating delete_memory function: {:?}", e);
+                        actix_web::error::ErrorInternalServerError(e.to_string())
+                    })?,
             )
-            .build()?,
+            .build()
+            .map_err(|e| {
+                error!("Error creating delete_memory tool: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e.to_string())
+            })?,
     ]);
 
     // Ensure we have at least one message, else return an error
@@ -205,7 +230,6 @@ async fn chat_with_memory(
         }
     }
 
-
     // Get the last message from the request
     let last_message_option = request_args.messages.last().cloned();
     // Clone the user_id for use in the async block
@@ -217,7 +241,7 @@ async fn chat_with_memory(
         .map(|invisibility| invisibility.chat_id);
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
-    
+
     let response = client
         .chat()
         .create_stream(request_args)
