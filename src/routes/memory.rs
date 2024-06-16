@@ -24,7 +24,7 @@ use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
-
+use serde_json::{json, Value};
 
 
 #[post("/v1/chat/completions/")]
@@ -146,7 +146,7 @@ async fn chat_with_memory(
             )
             .build()?,
     ]);
-    
+
     // Ensure we have at least one message, else return an error
     if request_args.messages.is_empty() {
         return Err(actix_web::error::ErrorBadRequest(
