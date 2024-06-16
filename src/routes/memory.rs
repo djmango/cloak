@@ -9,8 +9,12 @@ use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
-    CreateChatCompletionRequest,
+    CreateChatCompletionRequest, ChatCompletionMessageToolCall,
+    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestToolMessageArgs,
+    ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolType,
+    FinishReason, FunctionCall, FunctionObjectArgs,
 };
+
 use async_openai::Client;
 use bytes::Bytes;
 use futures::lock::Mutex;
@@ -59,6 +63,90 @@ async fn chat_with_memory(
         "gpt-3.5-turbo".to_string(),
     ]);
 
+    request_args.tools = Some(vec![
+        ChatCompletionToolArgs::default()
+            .r#type(ChatCompletionToolType::Function)
+            .function(
+                FunctionObjectArgs::default()
+                    .name("get_current_weather")
+                    .description("Get the current weather in a given location")
+                    .parameters(json!({
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The city and state, e.g. San Francisco, CA",
+                            },
+                            "unit": { "type": "string", "enum": ["celsius", "fahrenheit"] },
+                        },
+                        "required": ["location"],
+                    }))
+                    .build()?,
+            )
+            .build()?,
+        ChatCompletionToolArgs::default()
+            .r#type(ChatCompletionToolType::Function)
+            .function(
+                FunctionObjectArgs::default()
+                    .name("create_memory")
+                    .description("Create a new memory based on the user's input.")
+                    .parameters(json!({
+                        "type": "object",
+                        "properties": {
+                            "memory": {
+                                "type": "string",
+                                "description": "The memory content to be stored.",
+                            },
+                        },
+                        "required": ["memory"],
+                    }))
+                    .build()?,
+            )
+            .build()?,
+        ChatCompletionToolArgs::default()
+            .r#type(ChatCompletionToolType::Function)
+            .function(
+                FunctionObjectArgs::default()
+                    .name("update_memory")
+                    .description("Update an existing memory based on the user's input.")
+                    .parameters(json!({
+                        "type": "object",
+                        "properties": {
+                            "memory_id": {
+                                "type": "string",
+                                "description": "The ID of the memory to be updated.",
+                            },
+                            "new_memory": {
+                                "type": "string",
+                                "description": "The updated memory content.",
+                            },
+                        },
+                        "required": ["memory_id", "new_memory"],
+                    }))
+                    .build()?,
+            )
+            .build()?,
+        ChatCompletionToolArgs::default()
+            .r#type(ChatCompletionToolType::Function)
+            .function(
+                FunctionObjectArgs::default()
+                    .name("delete_memory")
+                    .description("Delete a memory based on the memory ID.")
+                    .parameters(json!({
+                        "type": "object",
+                        "properties": {
+                            "memory_id": {
+                                "type": "string",
+                                "description": "The ID of the memory to be deleted.",
+                            },
+                        },
+                        "required": ["memory_id"],
+                    }))
+                    .build()?,
+            )
+            .build()?,
+    ]);
+    
     // Ensure we have at least one message, else return an error
     if request_args.messages.is_empty() {
         return Err(actix_web::error::ErrorBadRequest(
@@ -129,7 +217,7 @@ async fn chat_with_memory(
         .map(|invisibility| invisibility.chat_id);
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
-
+    
     let response = client
         .chat()
         .create_stream(request_args)
