@@ -243,6 +243,8 @@ async fn chat_with_memory(
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
 
+    let messages_clone = request_args.messages.clone();
+
     let response = client
         .chat()
         .create_stream(request_args)
@@ -292,10 +294,14 @@ async fn chat_with_memory(
             move |item_result| {
                 let response_content = Arc::clone(&response_content);
                 let tool_call_states = Arc::clone(&tool_call_states);
+                let messages_clone = messages_clone.clone();
                 async move {
                     match item_result {
                         Ok(item) => {
                             if let Some(chat_choice_stream) = item.choices.first() {
+                                let function_responses: Arc<
+                                    Mutex<Vec<(ChatCompletionMessageToolCall, Value)>>,
+                                > = Arc::new(Mutex::new(Vec::new()));
                                 if let Some(tool_calls) = &chat_choice_stream.delta.tool_calls {
                                     for (_i, tool_call_chunk) in tool_calls.into_iter().enumerate() {
                                         debug!("Tool call chunk: {:?}", tool_call_chunk);
@@ -335,6 +341,42 @@ async fn chat_with_memory(
                                     debug!("Finish reason: {:?}", finish_reason);
                                     if matches!(finish_reason, FinishReason::ToolCalls) {
                                         let tool_call_states_clone = tool_call_states.clone();
+
+                                        let tool_calls_to_process = {
+                                            let states_lock = tool_call_states_clone.lock().await;
+                                            states_lock
+                                                .iter()
+                                                .map(|(_key, tool_call)| {
+                                                    let name = tool_call.function.name.clone();
+                                                    let args = tool_call.function.arguments.clone();
+                                                    let tool_call_clone = tool_call.clone();
+                                                    (name, args, tool_call_clone)
+                                                })
+                                                .collect::<Vec<_>>()
+                                        };
+
+                                        let mut handles = Vec::new();
+
+                                        for (name, args, tool_call_clone) in tool_calls_to_process {
+                                            let response_content_clone = function_responses.clone();
+                                            let handle = tokio::spawn(async move {
+                                                debug!("Calling function: {}, args: {}", name, args);
+                                                let response_content = call_fn(&name, &args).await.unwrap();
+                                                let mut function_responses_lock =
+                                                    response_content_clone.lock().await;
+                                                function_responses_lock
+                                                    .push((tool_call_clone, response_content));
+                                            });
+                                            handles.push(handle);
+                                        }
+            
+                                        for handle in handles {
+                                            handle.await.unwrap();
+                                        }
+
+                                        let function_responses_clone = function_responses.clone();
+                                        let function_responses_lock = function_responses_clone.lock().await;
+                                        let mut messages: Vec<ChatCompletionRequestMessage> = messages_clone;
                                     }
                                 }
                                 if let Some(new_response_content) =
