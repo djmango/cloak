@@ -9,7 +9,7 @@ use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
     ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequest,
-    FunctionObjectArgs, FunctionCall, ChatCompletionMessageToolCall
+    FunctionObjectArgs, FunctionCall, ChatCompletionMessageToolCall, FinishReason
 };
 
 use async_openai::Client;
@@ -17,7 +17,7 @@ use bytes::Bytes;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
-use serde_json::{json, to_string};
+use serde_json::{json, to_string, Value};
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use std::collections::HashMap;
@@ -331,7 +331,12 @@ async fn chat_with_memory(
                                         }
                                     }
                                 }
-                                
+                                if let Some(finish_reason) = &chat_choice_stream.finish_reason {
+                                    debug!("Finish reason: {:?}", finish_reason);
+                                    if matches!(finish_reason, FinishReason::ToolCalls) {
+                                        let tool_call_states_clone = tool_call_states.clone();
+                                    }
+                                }
                                 if let Some(new_response_content) =
                                     &chat_choice_stream.delta.content
                                 {
@@ -450,4 +455,87 @@ async fn chat_with_memory(
         .streaming(stream);
 
     Ok(response)
+}
+
+
+
+async fn call_fn(name: &str, args: &str) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut available_functions: HashMap<&str, fn(&str, &str) -> Value> = HashMap::new();
+    available_functions.insert("get_current_weather", get_current_weather);
+    available_functions.insert("create_memory", create_memory);
+    available_functions.insert("update_memory", update_memory);
+    available_functions.insert("delete_memory", delete_memory);
+
+    let function_args: Value = serde_json::from_str(args).unwrap();
+
+    let function_response = match name {
+        "get_current_weather" => {
+            let location = function_args["location"].as_str().unwrap();
+            let unit = function_args["unit"].as_str().unwrap_or("fahrenheit");
+            available_functions.get(name).unwrap()(location, unit)
+        }
+        "create_memory" => {
+            let memory = function_args["memory"].as_str().unwrap();
+            available_functions.get(name).unwrap()(memory, "")
+        }
+        "update_memory" => {
+            let memory_id = function_args["memory_id"].as_str().unwrap();
+            let new_memory = function_args["new_memory"].as_str().unwrap();
+            available_functions.get(name).unwrap()(memory_id, new_memory)
+        }
+        "delete_memory" => {
+            let memory_id = function_args["memory_id"].as_str().unwrap();
+            available_functions.get(name).unwrap()(memory_id, "")
+        }
+        _ => return Err("Function not found".into()),
+    };
+
+    Ok(function_response)
+}
+
+fn get_current_weather(location: &str, unit: &str) -> Value {
+    let temperature = 25;
+    let forecasts = [
+        "sunny", "cloudy", "overcast", "rainy", "windy", "foggy", "snowy",
+    ];
+    let forecast = forecasts[0];
+
+    let weather_info = json!({
+        "location": location,
+        "temperature": temperature.to_string(),
+        "unit": unit,
+        "forecast": forecast
+    });
+
+    weather_info
+}
+
+fn create_memory(memory: &str, _: &str) -> Value {
+    //call create memory function in src/models/memory.rs
+    let memory_info = json!({
+        "status": "success",
+        "message": format!("Memory created: {}", memory),
+    });
+
+    memory_info
+}
+
+fn update_memory(memory_id: &str, new_memory: &str) -> Value {
+    //call update memory function in src/models/memory.rs
+    let update_info = json!({
+        "status": "success",
+        "message": format!("Memory with ID {} updated to: {}", memory_id, new_memory),
+    });
+
+    update_info
+}
+
+fn delete_memory(memory_id: &str, _: &str) -> Value {
+    //call delete memory function in src/models/memory.rs
+    let delete_info = json!({
+        "status": "success",
+        "message": format!("Memory with ID {} deleted", memory_id),
+    });
+
+    delete_info
 }
