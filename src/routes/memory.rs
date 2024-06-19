@@ -9,7 +9,7 @@ use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
     ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequest,
-    FunctionObjectArgs, FunctionCall, ChatCompletionMessageToolCall, FinishReason
+    FunctionObjectArgs, FunctionCall, ChatCompletionMessageToolCall, FinishReason, ChatCompletionRequestToolMessageArgs, ChatCompletionRequestAssistantMessageArgs, CreateChatCompletionRequestArgs
 };
 
 use async_openai::Client;
@@ -377,6 +377,36 @@ async fn chat_with_memory(
                                         let function_responses_clone = function_responses.clone();
                                         let function_responses_lock = function_responses_clone.lock().await;
                                         let mut messages: Vec<ChatCompletionRequestMessage> = messages_clone;
+                                        let tool_calls: Vec<ChatCompletionMessageToolCall> =
+                                            function_responses_lock
+                                                .iter()
+                                                .map(|tc| tc.0.clone())
+                                                .collect();
+                                        let assistant_messages: ChatCompletionRequestMessage =
+                                            ChatCompletionRequestAssistantMessageArgs::default()
+                                                .tool_calls(tool_calls)
+                                                .build()
+                                                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+                                                .unwrap()
+                                                .into();
+                                        let tool_messages: Vec<ChatCompletionRequestMessage> =
+                                            function_responses_lock
+                                                .iter()
+                                                .map(|tc| {
+                                                    debug!("Function response: {:?}", tc.1);
+                                                    ChatCompletionRequestToolMessageArgs::default()
+                                                        .content(tc.1.to_string())
+                                                        .tool_call_id(tc.0.id.clone())
+                                                        .build()
+                                                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+                                                        .unwrap()
+                                                        .into()
+                                                })
+                                                .collect();
+                                        messages.push(assistant_messages);
+                                        messages.extend(tool_messages);
+                                        
+                                        // TODO: create second response with new messages
                                     }
                                 }
                                 if let Some(new_response_content) =
