@@ -9,7 +9,7 @@ use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
     ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequest,
-    FunctionObjectArgs,
+    FunctionObjectArgs, FunctionCall, ChatCompletionMessageToolCall
 };
 
 use async_openai::Client;
@@ -20,6 +20,7 @@ use futures::TryStreamExt;
 use serde_json::{json, to_string};
 use std::sync::Arc;
 use tracing::{debug, error, info};
+use std::collections::HashMap;
 
 #[post("/v1/chat/completions")]
 async fn chat_with_memory(
@@ -253,6 +254,10 @@ async fn chat_with_memory(
 
     // This logging has a non-zero cost, but its essentially trival, less than 5 microseconds theorectically
     let response_content = Arc::new(Mutex::new(String::new()));
+    
+    // Create a hashmap to store tool call states
+    let tool_call_states: Arc<Mutex<HashMap<(i32, i32), ChatCompletionMessageToolCall>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     // Create a stream that processes the response from llm host and stores the resulting assistant message
     let stream = response
@@ -283,8 +288,10 @@ async fn chat_with_memory(
         })
         .then({
             let response_content = Arc::clone(&response_content);
+            let tool_call_states = Arc::clone(&tool_call_states);
             move |item_result| {
                 let response_content = Arc::clone(&response_content);
+                let tool_call_states = Arc::clone(&tool_call_states);
                 async move {
                     match item_result {
                         Ok(item) => {
@@ -292,8 +299,39 @@ async fn chat_with_memory(
                                 if let Some(tool_calls) = &chat_choice_stream.delta.tool_calls {
                                     for (_i, tool_call_chunk) in tool_calls.into_iter().enumerate() {
                                         debug!("Tool call chunk: {:?}", tool_call_chunk);
+                                        let key = (chat_choice_stream.index as i32, tool_call_chunk.index);
+                                        let states = tool_call_states.clone();
+                                        let tool_call_data = tool_call_chunk.clone();
+
+                                        let mut states_lock = states.lock().await;
+                                        let state = states_lock.entry(key).or_insert_with(|| {
+                                            ChatCompletionMessageToolCall {
+                                                id: tool_call_data.id.clone().unwrap_or_default(),
+                                                r#type: ChatCompletionToolType::Function,
+                                                function: FunctionCall {
+                                                    name: tool_call_data
+                                                        .function
+                                                        .as_ref()
+                                                        .and_then(|f| f.name.clone())
+                                                        .unwrap_or_default(),
+                                                    arguments: tool_call_data
+                                                        .function
+                                                        .as_ref()
+                                                        .and_then(|f| f.arguments.clone())
+                                                        .unwrap_or_default(),
+                                                },
+                                            }
+                                        });
+                                        if let Some(arguments) = tool_call_chunk
+                                            .function
+                                            .as_ref()
+                                            .and_then(|f| f.arguments.as_ref())
+                                        {
+                                            state.function.arguments.push_str(arguments);
+                                        }
                                     }
                                 }
+                                
                                 if let Some(new_response_content) =
                                     &chat_choice_stream.delta.content
                                 {
