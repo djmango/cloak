@@ -1,5 +1,6 @@
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
+use crate::prompts::Prompts;
 use crate::AppState;
 use actix_web::{delete, put, web, Error, HttpResponse};
 use async_openai::config::OpenAIConfig;
@@ -67,13 +68,27 @@ async fn autorename_chat(
     let request = CreateChatCompletionRequest {
         messages: vec![
             ChatCompletionRequestMessage::User( ChatCompletionRequestUserMessage {
-                content: ChatCompletionRequestUserMessageContent::Text(
-                    "Create a concise, 3-5 word phrase as a header for the following. Please return only the 3-5 word header and no additional words or characters: \"yo where are pirate bases\"".to_string()
-                ),
+                content: ChatCompletionRequestUserMessageContent::Text(Prompts::AUTORENAME_1.to_string()),
                 ..Default::default()
             }),
             ChatCompletionRequestMessage::Assistant(ChatCompletionRequestAssistantMessage {
-                content: Some("Pirate Fortresses and their Origins".to_string()),
+                content: Some(Prompts::AUTORENAME_2.to_string()),
+                ..Default::default()
+            }),
+            ChatCompletionRequestMessage::User( ChatCompletionRequestUserMessage {
+                content: ChatCompletionRequestUserMessageContent::Text(Prompts::AUTORENAME_3.to_string()),
+                ..Default::default()
+            }),
+            ChatCompletionRequestMessage::Assistant(ChatCompletionRequestAssistantMessage {
+                content: Some(Prompts::AUTORENAME_4.to_string()),
+                ..Default::default()
+            }),
+            ChatCompletionRequestMessage::User( ChatCompletionRequestUserMessage {
+                content: ChatCompletionRequestUserMessageContent::Text(Prompts::AUTORENAME_5.to_string()),
+                ..Default::default()
+            }),
+            ChatCompletionRequestMessage::Assistant(ChatCompletionRequestAssistantMessage {
+                content: Some(Prompts::AUTORENAME_6.to_string()),
                 ..Default::default()
             }),
             ChatCompletionRequestMessage::User( ChatCompletionRequestUserMessage {
