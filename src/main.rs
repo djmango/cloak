@@ -12,6 +12,7 @@ use std::sync::Arc;
 mod config;
 mod middleware;
 mod models;
+mod prompts;
 mod routes;
 
 #[derive(Clone)]
