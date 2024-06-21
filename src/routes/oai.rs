@@ -9,7 +9,7 @@ use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
     ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
-    CreateChatCompletionRequest,
+    CreateChatCompletionRequest, ChatCompletionRequestSystemMessage, Role,
 };
 use async_openai::Client;
 use bytes::Bytes;
@@ -20,6 +20,8 @@ use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error};
+
+use crate::routes::memory::process_memory;
 
 #[post("/v1/chat/completions")]
 async fn chat(
@@ -162,6 +164,28 @@ async fn chat(
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
 
+    // Process memory
+    let memory_response = tokio::spawn({
+        let pool = Arc::new(app_state.pool.clone());
+        let user_id = authenticated_user.user_id.clone();
+        let last_messages = request_args.messages.iter().rev().take(3).cloned().collect::<Vec<_>>();
+        async move {
+            process_memory(pool, user_id, last_messages).await
+        }
+    }).await.map_err(|e| {
+        error!("Memory processing error: {:?}", e);
+        actix_web::error::ErrorInternalServerError("Memory processing failed")
+    })?.map_err(actix_web::error::ErrorInternalServerError)?;
+
+    // Append memory response to messages
+    request_args.messages.push(ChatCompletionRequestMessage::System(
+        ChatCompletionRequestSystemMessage {
+            content: memory_response,
+            name: Some("Memory".to_string()),
+        }
+    ));
+
+
     let response = client
         .chat()
         .create_stream(request_args)
@@ -171,7 +195,7 @@ async fn chat(
             actix_web::error::ErrorInternalServerError(e.to_string())
         })?;
 
-    // This logging has a non-zero cost, but its essentially trival, less than 5 microseconds theorectically
+    // This logging has a non-zero cost, but its essentially trivial, less than 5 microseconds theoretically
     let response_content = Arc::new(Mutex::new(String::new()));
 
     // Create a stream that processes the response from llm host and stores the resulting assistant message
@@ -238,7 +262,7 @@ async fn chat(
                 let content = response_content_clone.lock().await.clone();
                 debug!("Stream processing completed");
 
-                // Spawn a new task to store the results in the database asynchonously
+                // Spawn a new task to store the results in the database asynchronously
                 actix_web::rt::spawn({
                     async move {
                         // Determine the chat to use, either from invisibility or by creating new
