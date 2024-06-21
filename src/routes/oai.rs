@@ -8,8 +8,8 @@ use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
-    CreateChatCompletionRequest, ChatCompletionRequestSystemMessage, Role,
+    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestSystemMessage,
+    ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest,
 };
 use async_openai::Client;
 use bytes::Bytes;
@@ -21,8 +21,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error};
 
-use crate::routes::memory::process_memory;
 use crate::routes::memory::get_all_user_memories;
+use crate::routes::memory::process_memory;
 
 #[post("/v1/chat/completions")]
 async fn chat(
@@ -40,12 +40,15 @@ async fn chat(
     let mut request_args = req_body.into_inner();
 
     // Get all user memories
-    let all_memories = get_all_user_memories(Arc::new(app_state.pool.clone()), &authenticated_user.user_id)
-        .await
-        .map_err(|e| {
-            error!("Error fetching user memories: {:?}", e);
-            actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
-        })?;
+    let all_memories = get_all_user_memories(
+        Arc::new(app_state.pool.clone()),
+        &authenticated_user.user_id,
+    )
+    .await
+    .map_err(|e| {
+        error!("Error fetching user memories: {:?}", e);
+        actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
+    })?;
 
     // Prepend all memories to the messages as a system message
     request_args.messages.insert(0, ChatCompletionRequestMessage::System(
@@ -181,28 +184,40 @@ async fn chat(
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
 
+    // Remove the invisibility field from the request_args
+    // This field is not part of the OpenAI API and is only used internally
+    request_args.invisibility = None;
+
     // Process memory
     let memory_response = tokio::spawn({
         let pool = Arc::new(app_state.pool.clone());
         let user_id = authenticated_user.user_id.clone();
-        let last_messages = request_args.messages.iter().rev().take(3).cloned().collect::<Vec<_>>();
+        let last_messages = request_args
+            .messages
+            .iter()
+            .rev()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>();
         let client_clone = client.clone(); // Clone the authenticated client
-        async move {
-            process_memory(pool, user_id, last_messages, client_clone).await
-        }
-    }).await.map_err(|e| {
+        async move { process_memory(pool, user_id, last_messages, client_clone).await }
+    })
+    .await
+    .map_err(|e| {
         error!("Memory processing error: {:?}", e);
         actix_web::error::ErrorInternalServerError("Memory processing failed")
-    })?.map_err(actix_web::error::ErrorInternalServerError)?;
+    })?
+    .map_err(actix_web::error::ErrorInternalServerError)?;
 
     // Append memory response to messages
-    request_args.messages.push(ChatCompletionRequestMessage::System(
-        ChatCompletionRequestSystemMessage {
-            content: memory_response,
-            name: Some("Memory".to_string()),
-        }
-    ));
-
+    request_args
+        .messages
+        .push(ChatCompletionRequestMessage::System(
+            ChatCompletionRequestSystemMessage {
+                content: memory_response,
+                name: Some("Memory".to_string()),
+            },
+        ));
 
     let response = client
         .chat()
@@ -364,3 +379,4 @@ async fn chat(
 
     Ok(response)
 }
+
