@@ -186,3 +186,16 @@ async fn call_fn(
         _ => Err("Unknown function".into()),
     }
 }
+
+
+
+pub async fn get_all_user_memories(
+    pool: Arc<PgPool>,
+    user_id: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Fetch all memories for the user
+    let user_memories = Memory::get_all_memories(&pool, user_id).await?;
+    let formatted_memories = Memory::format_memories(user_memories);
+    
+    Ok(formatted_memories)
+}
