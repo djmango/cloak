@@ -28,6 +28,7 @@ pub struct Message {
     pub text: String,
     pub role: Role,
     pub regenerated: bool,
+    pub model_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -41,6 +42,7 @@ impl Default for Message {
             text: String::new(),
             role: Role::User,
             regenerated: false,
+            model_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -66,7 +68,7 @@ impl Message {
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, created_at, updated_at)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
             message.id,
@@ -75,6 +77,7 @@ impl Message {
             message.text,
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
+            message.model_id,
             message.created_at,
             message.updated_at
         )
