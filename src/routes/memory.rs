@@ -39,7 +39,7 @@ pub async fn process_memory(
 
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(512u32)
-        .model("gpt-4-1106-preview")
+        .model("fireworks_ai/firefunction-v2")
         .messages(ai_messages)
         .tools(vec![
             ChatCompletionToolArgs::default()
@@ -125,25 +125,8 @@ pub async fn process_memory(
         }
     }
 
-    let final_request = CreateChatCompletionRequestArgs::default()
-        .max_tokens(512u32)
-        .model("gpt-4-1106-preview")
-        .messages(vec![
-            ChatCompletionRequestSystemMessageArgs::default()
-                .content("Summarize the interaction and any changes to the user's memories.")
-                .build()?
-                .into(),
-            ChatCompletionRequestAssistantMessageArgs::default()
-                .content(response_message.content.unwrap_or_default())
-                .build()?
-                .into(),
-        ])
-        .build()?;
-
-    let final_response = client.chat().create(final_request).await?;
-    let response_content = final_response.choices[0].message.content.clone().unwrap_or_default();
-
-    Ok(response_content)
+    // Return the content of the response message
+    Ok(response_message.content.unwrap_or_default())
 }
 
 async fn call_fn(
