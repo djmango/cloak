@@ -11,15 +11,15 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 use std::sync::Arc;
-
+use async_openai::config::OpenAIConfig;
 use crate::models::memory::Memory;
 
 pub async fn process_memory(
     pool: Arc<PgPool>,
     user_id: String,
     messages: Vec<ChatCompletionRequestMessage>,
+    client: Client<OpenAIConfig>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let client = Client::new();
 
     // Fetch all memories for the user
     let user_memories = Memory::get_all_memories(&pool, &user_id).await?;

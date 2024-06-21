@@ -169,8 +169,9 @@ async fn chat(
         let pool = Arc::new(app_state.pool.clone());
         let user_id = authenticated_user.user_id.clone();
         let last_messages = request_args.messages.iter().rev().take(3).cloned().collect::<Vec<_>>();
+        let client_clone = client.clone(); // Clone the authenticated client
         async move {
-            process_memory(pool, user_id, last_messages).await
+            process_memory(pool, user_id, last_messages, client_clone).await
         }
     }).await.map_err(|e| {
         error!("Memory processing error: {:?}", e);
