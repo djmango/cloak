@@ -70,11 +70,6 @@ async fn main(
                         .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
                 )
                 .service(
-                    web::scope("/memory")
-                        .service(routes::memory::chat_with_memory)
-                        .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
-                )
-                .service(
                     web::scope("/pay")
                         .service(routes::pay::checkout)
                         .service(routes::pay::get_invite)
