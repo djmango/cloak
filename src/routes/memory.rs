@@ -1,7 +1,7 @@
 // routes/memory.rs
 
 use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestAssistantMessageArgs,
+    ChatCompletionRequestMessage,
     ChatCompletionRequestSystemMessageArgs, ChatCompletionToolArgs, 
     ChatCompletionToolType, CreateChatCompletionRequestArgs,
     FunctionObjectArgs,
@@ -39,7 +39,7 @@ pub async fn process_memory(
 
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(512u32)
-        .model("gpt-4o")
+        .model("claude-3-5-sonnet-20240620")
         .messages(ai_messages)
         .tools(vec![
             ChatCompletionToolArgs::default()
