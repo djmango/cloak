@@ -56,19 +56,14 @@ async fn chat(
         "perplexity/sonar-medium-online" => {
             "openrouter/perplexity/llama-3-sonar-large-32k-online".to_string()
         }
-        "anthropic/claude-3-opus:beta" => {
-            "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string()
-        }
-        "claude-3-opus-20240229" => "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string(),
-        "anthropic/claude-3-sonnet:beta" => "claude-3-sonnet-20240229".to_string(),
-        "anthropic/claude-3-haiku:beta" => "claude-3-haiku-20240307".to_string(),
+        "openrouter/google/gemini-pro-1.5" => "gemini-1.5-flash-001".to_string(),
         _ => request_args.model,
     };
 
     // Set fallback models
     request_args.fallback = Some(vec![
-        "gpt-4-turbo-2024-04-09".to_string(),
-        "claude-3-sonnet-20240229".to_string(),
+        "gpt-4o".to_string(),
+        "claude-3-5-sonnet-20240620".to_string(),
     ]);
 
     // Ensure we have at least one message, else return an error
