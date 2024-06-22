@@ -161,7 +161,7 @@ async fn chat(
         .map(|invisibility| invisibility.chat_id);
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
-
+    
     let model_id = request_args.model.clone();
 
     let response = client
