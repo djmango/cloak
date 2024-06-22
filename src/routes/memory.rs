@@ -39,7 +39,7 @@ pub async fn process_memory(
 
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(512u32)
-        .model("fireworks_ai/firefunction-v2")
+        .model("gpt-4o")
         .messages(ai_messages)
         .tools(vec![
             ChatCompletionToolArgs::default()
