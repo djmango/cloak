@@ -161,6 +161,8 @@ async fn chat(
         .map(|invisibility| invisibility.chat_id);
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
+    
+    let model_id = request_args.model.clone();
 
     let response = client
         .chat()
@@ -280,6 +282,7 @@ async fn chat(
                                 last_oai_message,
                                 chat.id,
                                 &user_id.clone(),
+                                Some(model_id.clone()),
                                 invisibility_metadata,
                                 Some(start_time),
                             )
@@ -300,6 +303,7 @@ async fn chat(
                             &app_state.pool,
                             chat.id,
                             &chat.user_id,
+                            Some(model_id.clone()),
                             &content,
                             crate::models::message::Role::Assistant,
                         )
