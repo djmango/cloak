@@ -19,7 +19,7 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::routes::memory::get_all_user_memories;
 use crate::routes::memory::process_memory;
@@ -183,37 +183,6 @@ async fn chat(
     // This field is not part of the OpenAI API and is only used internally
     request_args.invisibility = None;
 
-    // Process memory
-    let memory_response = tokio::spawn({
-        let pool = Arc::new(app_state.pool.clone());
-        let user_id = authenticated_user.user_id.clone();
-        let last_messages = request_args
-            .messages
-            .iter()
-            .rev()
-            .take(3)
-            .cloned()
-            .collect::<Vec<_>>();
-        let client_clone = client.clone(); // Clone the authenticated client
-        async move { process_memory(pool, user_id, last_messages, client_clone).await }
-    })
-    .await
-    .map_err(|e| {
-        error!("Memory processing error: {:?}", e);
-        actix_web::error::ErrorInternalServerError("Memory processing failed")
-    })?
-    .map_err(actix_web::error::ErrorInternalServerError)?;
-
-    // Append memory response to messages
-    request_args
-        .messages
-        .push(ChatCompletionRequestMessage::System(
-            ChatCompletionRequestSystemMessage {
-                content: memory_response,
-                name: Some("Memory".to_string()),
-            },
-        ));
-  
     let model_id = request_args.model.clone();
 
     let response = client
@@ -331,7 +300,7 @@ async fn chat(
                         if let Some(last_oai_message) = last_message_option {
                             match Message::from_oai(
                                 &app_state.pool,
-                                last_oai_message,
+                                last_oai_message.clone(),
                                 chat.id,
                                 &user_id.clone(),
                                 Some(model_id.clone()),
@@ -347,6 +316,16 @@ async fn chat(
                                     error!("Error creating message from OAI message: {:?}", e);
                                 }
                             };
+
+                            // Process memory
+                            info!("Processing memory");
+                            _ = process_memory(
+                                &app_state.pool,
+                                &chat.user_id,
+                                vec![last_oai_message],
+                                client,
+                            )
+                            .await;
                         } else {
                             error!("No messages found in request_args.messages");
                         }
@@ -378,4 +357,3 @@ async fn chat(
 
     Ok(response)
 }
-
