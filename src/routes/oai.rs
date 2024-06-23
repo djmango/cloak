@@ -39,24 +39,25 @@ async fn chat(
 
     let mut request_args = req_body.into_inner();
 
-    // Get all user memories
-    let all_memories = get_all_user_memories(
-        Arc::new(app_state.pool.clone()),
-        &authenticated_user.user_id,
-    )
-    .await
-    .map_err(|e| {
-        error!("Error fetching user memories: {:?}", e);
-        actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
-    })?;
+    // NOTE disabling memory injection for now
+    // // Get all user memories
+    // let all_memories = get_all_user_memories(
+    //     Arc::new(app_state.pool.clone()),
+    //     &authenticated_user.user_id,
+    // )
+    // .await
+    // .map_err(|e| {
+    //     error!("Error fetching user memories: {:?}", e);
+    //     actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
+    // })?;
 
-    // Prepend all memories to the messages as a system message
-    request_args.messages.insert(0, ChatCompletionRequestMessage::System(
-        ChatCompletionRequestSystemMessage {
-            content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
-            name: Some("Memory".to_string()),
-        }
-    ));
+    // // Prepend all memories to the messages as a system message
+    // request_args.messages.insert(0, ChatCompletionRequestMessage::System(
+    //     ChatCompletionRequestSystemMessage {
+    //         content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
+    //         name: Some("Memory".to_string()),
+    //     }
+    // ));
 
     // For now, we only support streaming completions
     request_args.stream = Some(true);
