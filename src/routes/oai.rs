@@ -248,6 +248,7 @@ async fn chat(
                             &app_state.pool,
                             user_id.clone().as_str(),
                             chat_id,
+                            invisibility_metadata.clone().unwrap().branch_from_message_id
                         )
                         .await
                         {
@@ -275,7 +276,6 @@ async fn chat(
                             }
                         }
 
-                        // Insert into db a message, the last OAI message (prompt). This should always be a user message
                         if let Some(last_oai_message) = last_message_option {
                             match Message::from_oai(
                                 &app_state.pool,
