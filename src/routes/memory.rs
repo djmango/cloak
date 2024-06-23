@@ -1,40 +1,39 @@
 // routes/memory.rs
 
+use crate::models::memory::Memory;
+use async_openai::config::OpenAIConfig;
 use async_openai::types::{
-    ChatCompletionRequestMessage,
-    ChatCompletionRequestSystemMessageArgs, ChatCompletionToolArgs, 
-    ChatCompletionToolType, CreateChatCompletionRequestArgs,
-    FunctionObjectArgs,
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionToolArgs,
+    ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs,
 };
 use async_openai::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use uuid::Uuid;
 use std::sync::Arc;
-use async_openai::config::OpenAIConfig;
-use crate::models::memory::Memory;
+use tracing::info;
+use uuid::Uuid;
 
 pub async fn process_memory(
-    pool: Arc<PgPool>,
-    user_id: String,
+    pool: &PgPool,
+    user_id: &str,
     messages: Vec<ChatCompletionRequestMessage>,
     client: Client<OpenAIConfig>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-
     // Fetch all memories for the user
-    let user_memories = Memory::get_all_memories(&pool, &user_id).await?;
+    let user_memories = Memory::get_all_memories(pool, user_id).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
+    info!("User memories: {}", formatted_memories);
+    info!("Messages: {:?}", messages);
+
     // Prepare the messages for the AI, including the formatted memories
-    let mut ai_messages = vec![
-        ChatCompletionRequestSystemMessageArgs::default()
-            .content(format!(
-                "You are an AI assistant with access to the following user memories:\n{}",
-                formatted_memories
-            ))
-            .build()?
-            .into(),
-    ];
+    let mut ai_messages = vec![ChatCompletionRequestSystemMessageArgs::default()
+        .content(format!(
+            "You are an AI assistant with access to the following user memories:\n{}",
+            formatted_memories
+        ))
+        .build()?
+        .into()];
     ai_messages.extend(messages);
 
     let request = CreateChatCompletionRequestArgs::default()
@@ -111,7 +110,7 @@ pub async fn process_memory(
         .create(request)
         .await?
         .choices
-        .get(0)
+        .first()
         .unwrap()
         .message
         .clone();
@@ -121,12 +120,14 @@ pub async fn process_memory(
             let name = tool_call.function.name.clone();
             let args = tool_call.function.arguments.clone();
 
-            call_fn(&pool, &name, &args, &user_id).await?;
+            call_fn(pool, &name, &args, user_id).await?;
         }
     }
 
     // Return the content of the response message
-    Ok(response_message.content.unwrap_or_default())
+    let response_content = response_message.content.unwrap_or_default();
+    info!("Memory response content: {}", response_content);
+    Ok(response_content)
 }
 
 async fn call_fn(
@@ -150,7 +151,8 @@ async fn call_fn(
         "update_memory" => {
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
             let new_memory = function_args["new_memory"].as_str().unwrap();
-            let updated_memory = Memory::update_memory(pool, memory_id, new_memory, user_id).await?;
+            let updated_memory =
+                Memory::update_memory(pool, memory_id, new_memory, user_id).await?;
             Ok(json!({
                 "status": "success",
                 "memory_id": updated_memory.id,
@@ -170,8 +172,6 @@ async fn call_fn(
     }
 }
 
-
-
 pub async fn get_all_user_memories(
     pool: Arc<PgPool>,
     user_id: &str,
@@ -179,6 +179,6 @@ pub async fn get_all_user_memories(
     // Fetch all memories for the user
     let user_memories = Memory::get_all_memories(&pool, user_id).await?;
     let formatted_memories = Memory::format_memories(user_memories);
-    
+
     Ok(formatted_memories)
 }
