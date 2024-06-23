@@ -8,8 +8,8 @@ use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessageContent,
-    CreateChatCompletionRequest,
+    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestSystemMessage,
+    ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest,
 };
 use async_openai::Client;
 use bytes::Bytes;
@@ -20,6 +20,9 @@ use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error};
+
+use crate::routes::memory::get_all_user_memories;
+use crate::routes::memory::process_memory;
 
 #[post("/v1/chat/completions")]
 async fn chat(
@@ -35,6 +38,25 @@ async fn chat(
     );
 
     let mut request_args = req_body.into_inner();
+
+    // Get all user memories
+    let all_memories = get_all_user_memories(
+        Arc::new(app_state.pool.clone()),
+        &authenticated_user.user_id,
+    )
+    .await
+    .map_err(|e| {
+        error!("Error fetching user memories: {:?}", e);
+        actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
+    })?;
+
+    // Prepend all memories to the messages as a system message
+    request_args.messages.insert(0, ChatCompletionRequestMessage::System(
+        ChatCompletionRequestSystemMessage {
+            content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
+            name: Some("Memory".to_string()),
+        }
+    ));
 
     // For now, we only support streaming completions
     request_args.stream = Some(true);
@@ -157,6 +179,41 @@ async fn chat(
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
 
+    // Remove the invisibility field from the request_args
+    // This field is not part of the OpenAI API and is only used internally
+    request_args.invisibility = None;
+
+    // Process memory
+    let memory_response = tokio::spawn({
+        let pool = Arc::new(app_state.pool.clone());
+        let user_id = authenticated_user.user_id.clone();
+        let last_messages = request_args
+            .messages
+            .iter()
+            .rev()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>();
+        let client_clone = client.clone(); // Clone the authenticated client
+        async move { process_memory(pool, user_id, last_messages, client_clone).await }
+    })
+    .await
+    .map_err(|e| {
+        error!("Memory processing error: {:?}", e);
+        actix_web::error::ErrorInternalServerError("Memory processing failed")
+    })?
+    .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    // Append memory response to messages
+    request_args
+        .messages
+        .push(ChatCompletionRequestMessage::System(
+            ChatCompletionRequestSystemMessage {
+                content: memory_response,
+                name: Some("Memory".to_string()),
+            },
+        ));
+  
     let model_id = request_args.model.clone();
 
     let response = client
@@ -168,7 +225,7 @@ async fn chat(
             actix_web::error::ErrorInternalServerError(e.to_string())
         })?;
 
-    // This logging has a non-zero cost, but its essentially trival, less than 5 microseconds theorectically
+    // This logging has a non-zero cost, but its essentially trivial, less than 5 microseconds theoretically
     let response_content = Arc::new(Mutex::new(String::new()));
 
     // Create a stream that processes the response from llm host and stores the resulting assistant message
@@ -235,7 +292,7 @@ async fn chat(
                 let content = response_content_clone.lock().await.clone();
                 debug!("Stream processing completed");
 
-                // Spawn a new task to store the results in the database asynchonously
+                // Spawn a new task to store the results in the database asynchronously
                 actix_web::rt::spawn({
                     async move {
                         // Determine the chat to use, either from invisibility or by creating new
@@ -321,3 +378,4 @@ async fn chat(
 
     Ok(response)
 }
+
