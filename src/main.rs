@@ -8,6 +8,8 @@ use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
+use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 
 mod config;
 mod middleware;
@@ -22,6 +24,20 @@ struct AppState {
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
 }
+
+// #[derive(OpenApi)]
+// #[openapi(
+//     paths(
+//         get_todos,
+//         create_todo,
+//         delete_todo,
+//         get_todo_by_id,
+//         update_todo,
+//         search_todos
+//     ),
+//     components(schemas(Todo, TodoUpdateRequest, ErrorResponse))
+// )]
+// pub(super) struct TodoApi;
 
 #[shuttle_runtime::main]
 async fn main(
@@ -41,6 +57,18 @@ async fn main(
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
+
+    #[derive(OpenApi)]
+    #[openapi(
+        // nest(
+        //     (path = "/api", api = todo::TodoApi)
+        // ),
+        tags(
+            (name = "cloak", description = "Invisibiliy cloak API, powering i.inc and related services.")
+        )
+    )]
+    struct ApiDoc;
+    let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {
         cfg.service(
@@ -81,6 +109,7 @@ async fn main(
                 )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
+                .service(Scalar::with_url("/scalar", openapi))
                 .wrap(middleware::auth::AuthenticationMiddleware {
                     app_config: app_config.clone(),
                 })
