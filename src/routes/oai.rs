@@ -320,6 +320,10 @@ async fn chat(
                                 }
                             };
 
+                      
+                        } else {
+                            error!("No messages found in request_args.messages");
+                        }
 
                         if let Err(err) = Message::new(
                             &app_state.pool,
