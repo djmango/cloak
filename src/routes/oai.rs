@@ -21,9 +21,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 
-use crate::routes::memory::get_all_user_memories;
-use crate::routes::memory::process_memory;
-
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
@@ -180,7 +177,7 @@ async fn chat(
     let invisibility_metadata = request_args.invisibility.clone();
 
     // Remove the invisibility field from the request_args
-    // This field is not part of the OpenAI API and is only used internally
+    // This field is not part of the OpenAI API and is only used interinally
     request_args.invisibility = None;
 
     let model_id = request_args.model.clone();
@@ -269,6 +266,10 @@ async fn chat(
                             &app_state.pool,
                             user_id.clone().as_str(),
                             chat_id,
+                            match invisibility_metadata {
+                                Some(metadata) => metadata.branch_from_message_id,
+                                None => None,
+                            },
                         )
                         .await
                         {
@@ -281,19 +282,21 @@ async fn chat(
 
                         // If the metadata includes a regenerate_from_message_id, mark the messages after that
                         // in the chat as regenerated
-                        if let Some(invisibility_metadata) = invisibility_metadata.clone() {
-                            if let Some(regenerate_from_message_id) =
-                                invisibility_metadata.regenerate_from_message_id
-                            {
-                                if let Err(e) = Message::mark_regenerated_from_message_id(
-                                    &app_state.pool,
-                                    regenerate_from_message_id,
-                                )
-                                .await
-                                {
-                                    error!("Error marking chat as regenerated: {:?}", e);
+                        match invisibility_metadata {
+                            Some(metadata) => {
+                                if let Some(regenerate_from_message_id) = metadata.regenerate_from_message_id {
+                                    if let Err(e) = Message::mark_regenerated_from_message_id(
+                                        &app_state.pool,
+                                        regenerate_from_message_id,
+                                    )
+                                    .await
+                                    {
+                                        error!("Error marking chat as regenerated: {:?}", e);
+                                        // You might want to handle this error case more explicitly
+                                    }
                                 }
-                            }
+                            },
+                            None => {} // Do nothing if invisibility_metadata is None
                         }
 
                         // Insert into db a message, the last OAI message (prompt). This should always be a user message
@@ -317,18 +320,6 @@ async fn chat(
                                 }
                             };
 
-                            // Process memory
-                            info!("Processing memory");
-                            _ = process_memory(
-                                &app_state.pool,
-                                &chat.user_id,
-                                vec![last_oai_message],
-                                client,
-                            )
-                            .await;
-                        } else {
-                            error!("No messages found in request_args.messages");
-                        }
 
                         if let Err(err) = Message::new(
                             &app_state.pool,
