@@ -1,9 +1,8 @@
 use actix_web::web::Json;
 use actix_web::{get, web, Responder};
 use anyhow::anyhow;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -18,20 +17,10 @@ use tracing::{error, info, warn};
 
 use crate::middleware::auth::AuthenticatedUser;
 use crate::routes::auth::{user_email_to_user, user_id_to_user};
+use crate::types::{
+    CheckoutRequest, InviteQuery, LoopsContact, ManageResponse, PaymentSuccessRequest, UserInvite,
+};
 use crate::{AppConfig, AppState};
-
-#[derive(Serialize, Deserialize, Clone)]
-struct UserInvite {
-    email: String,
-    code: String,
-    created_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct LoopsContact {
-    pub email: String,
-    pub source: String,
-}
 
 #[get("/invite")]
 async fn get_invite(
@@ -94,11 +83,6 @@ async fn get_invite(
     }
 }
 
-#[derive(Deserialize)]
-struct InviteQuery {
-    code: Option<String>,
-}
-
 #[get("/list_invites")]
 async fn list_invites(
     app_state: web::Data<Arc<AppState>>,
@@ -136,12 +120,6 @@ async fn list_invites(
             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct PaymentSuccessRequest {
-    session_id: String,
-    user_email: String,
 }
 
 #[get("/payment_success")]
@@ -194,11 +172,6 @@ async fn payment_success(
 
     info!("Payment success for session: {}", session_query.session_id);
     Ok(web::Redirect::to("invisibility://paid"))
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct CheckoutRequest {
-    email: String,
 }
 
 #[get("/checkout")]
@@ -380,11 +353,6 @@ async fn paid(
             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct ManageResponse {
-    url: String,
 }
 
 #[get("/manage")]

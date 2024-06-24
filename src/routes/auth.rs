@@ -1,12 +1,9 @@
-use crate::models::user::User;
-use crate::AppState;
-use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 use actix_web::{
     get,
     web::{self, Json},
     Error, Responder,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::stream::{FuturesUnordered, StreamExt};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
@@ -16,64 +13,12 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
-#[derive(Deserialize)]
-struct AuthCallbackQuery {
-    code: String,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct WorkOSUser {
-    pub object: String,
-    pub id: String,
-    pub email: String,
-    pub first_name: Option<String>,
-    pub last_name: Option<String>,
-    pub email_verified: bool,
-    pub profile_picture_url: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-// For the request payload
-#[derive(Serialize)]
-struct WorkOSAuthRequest {
-    client_id: String,
-    client_secret: String,
-    grant_type: String,
-    code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ip_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    user_agent: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    invitation_code: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct WorkOSAuthResponse {
-    user: WorkOSUser,
-    #[allow(dead_code)] // We never really use organization_id but whatever
-    organization_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub exp: usize,
-    pub iat: usize,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct ListMetadata {
-    before: Option<String>,
-    after: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct GetUserResponse {
-    data: Vec<WorkOSUser>,
-    list_metadata: ListMetadata,
-}
+use crate::models::User;
+use crate::types::{
+    AuthCallbackQuery, Claims, GetUserResponse, WorkOSAuthRequest, WorkOSAuthResponse, WorkOSUser,
+};
+use crate::AppState;
+use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 
 /// A redirect to the WorkOS login page
 #[get("/login")]
