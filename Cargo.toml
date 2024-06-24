@@ -11,7 +11,7 @@ split-debuginfo = "unpacked"
 actix-cors = "0.7.0"
 actix-web = "4.3.1"
 anyhow = "1.0.80"
-async-openai = { git = "https://github.com/minjunes/async-openai.git", branch = "master" }
+async-openai = { git = "https://github.com/djmango/async-openai.git", branch = "master" }
 # async-openai = { path = "../async-openai/async-openai/" }
 async-stripe = { version = "0.34.1", default-features = false, features = ["runtime-tokio-hyper", "billing", "checkout"] }
 bytes = "1.5.0"
@@ -32,8 +32,8 @@ shuttle-runtime = "0.46.0"
 sqlx = { version = "0.7", features = ["runtime-tokio", "tls-native-tls", "postgres", "macros", "time", "chrono", "uuid"] }
 tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1.40"
-utoipa = { version = "4.2.3", features = ["actix_extras", "chrono", "uuid", "url"] }
-utoipa-scalar = { version = "0.1.0", features = ["actix-web"] }
+utoipa = { version = "5.0.0-alpha.0", features = ["actix_extras", "chrono", "uuid", "url"] }
+utoipa-scalar = { version = "0.2.0-alpha.0", features = ["actix-web"] }
 uuid = { version = "1.8.0", features = ["serde", "v4"] }
 
 [dev-dependencies]

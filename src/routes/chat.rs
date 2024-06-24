@@ -1,7 +1,3 @@
-use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::prompts::Prompts;
-use crate::AppState;
 use actix_web::{delete, put, web, Error, HttpResponse};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
@@ -10,21 +6,16 @@ use async_openai::types::{
     CreateChatCompletionRequest,
 };
 use async_openai::Client;
-use serde::Deserialize;
 use sqlx::query_scalar;
 use std::sync::Arc;
 use tracing::error;
 use uuid::Uuid;
 
-#[derive(Deserialize)]
-struct UpdateChatRequest {
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct AutorenameChatRequest {
-    text: String,
-}
+use crate::middleware::auth::AuthenticatedUser;
+use crate::models::chat::Chat;
+use crate::prompts::Prompts;
+use crate::types::{AutorenameChatRequest, UpdateChatRequest};
+use crate::AppState;
 
 #[put("/{chat_id}/autorename")]
 async fn autorename_chat(

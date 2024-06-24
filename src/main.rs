@@ -16,6 +16,7 @@ mod middleware;
 mod models;
 mod prompts;
 mod routes;
+mod types;
 
 #[derive(Clone)]
 struct AppState {
@@ -25,19 +26,17 @@ struct AppState {
     stripe_client: stripe::Client,
 }
 
-// #[derive(OpenApi)]
-// #[openapi(
-//     paths(
-//         get_todos,
-//         create_todo,
-//         delete_todo,
-//         get_todo_by_id,
-//         update_todo,
-//         search_todos
-//     ),
-//     components(schemas(Todo, TodoUpdateRequest, ErrorResponse))
-// )]
-// pub(super) struct TodoApi;
+#[derive(OpenApi)]
+#[openapi(
+        nest(
+            (path = "/", api = routes::hello::ApiDoc),
+            (path = "/oai", api = routes::oai::ApiDoc),
+        ),
+        tags(
+            (name = "cloak", description = "Invisibiliy cloak API, powering i.inc and related services.")
+        )
+    )]
+struct ApiDoc;
 
 #[shuttle_runtime::main]
 async fn main(
@@ -58,16 +57,6 @@ async fn main(
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
 
-    #[derive(OpenApi)]
-    #[openapi(
-        // nest(
-        //     (path = "/api", api = todo::TodoApi)
-        // ),
-        tags(
-            (name = "cloak", description = "Invisibiliy cloak API, powering i.inc and related services.")
-        )
-    )]
-    struct ApiDoc;
     let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {

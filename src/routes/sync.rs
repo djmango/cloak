@@ -1,21 +1,15 @@
-use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::models::file::{File, Filetype};
-use crate::models::message::{Message, Role};
-use crate::AppState;
 use actix_web::{get, web};
-use serde::{Deserialize, Serialize};
 use sqlx::query_as;
 use std::sync::Arc;
 use tokio::join;
 use tracing::error;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct AllResponse {
-    chats: Vec<Chat>,
-    messages: Vec<Message>,
-    files: Vec<File>,
-}
+use crate::middleware::auth::AuthenticatedUser;
+use crate::models::chat::Chat;
+use crate::models::file::{File, Filetype};
+use crate::models::message::{Message, Role};
+use crate::types::AllResponse;
+use crate::AppState;
 
 /// Return all the chats and messages for the user
 #[get("/all")]

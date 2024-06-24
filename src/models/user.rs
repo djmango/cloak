@@ -4,7 +4,7 @@ use sqlx::{query, query_as, FromRow, PgPool };
 use anyhow::Error;
 use indicatif::ProgressIterator;
 
-use crate::routes::auth::WorkOSUser;
+use crate::types::WorkOSUser;
 
 #[derive(Clone, Debug, FromRow, Serialize, Deserialize)]
 pub struct User {
