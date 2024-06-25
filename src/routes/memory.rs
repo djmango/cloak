@@ -1,17 +1,23 @@
 // routes/memory.rs
 
+use actix_web::{post, web, HttpResponse, Responder};
+use utoipa::openapi::info;
 use crate::models::memory::Memory;
+use crate::models::Message;
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionToolArgs,
-    ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs,
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs
 };
 use async_openai::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, error};
 use uuid::Uuid;
+use crate::AppState;
+use crate::AppConfig;
+use crate::types::GenerateMemoriesRequest;
+// use rand::seq::SliceRandom;
 
 pub async fn process_memory(
     pool: &PgPool,
@@ -168,6 +174,23 @@ async fn call_fn(
                 "message": "Memory deleted successfully."
             }))
         }
+        "generate_memories" => {
+            info!("Function args: {:?}", function_args);
+            let generalizations = function_args["generalizations"].as_str().unwrap();
+            let memories = function_args["memories"].as_array().unwrap();
+
+            // info!("User memories: {:?}", memories);
+            for memory in memories {
+                Memory::add_memory(pool, memory.as_str().unwrap(), user_id).await?;
+            }
+
+            Ok(json!({
+                "status": "success",
+                "generalizations": generalizations,
+                "memories": memories,
+                "message": "Memories added successfully"
+            }))
+        }
         _ => Err("Unknown function".into()),
     }
 }
@@ -181,4 +204,129 @@ pub async fn get_all_user_memories(
     let formatted_memories = Memory::format_memories(user_memories);
 
     Ok(formatted_memories)
+}
+
+#[post("/generate_from_chat")]
+async fn generate_memories_from_chat_history(
+    app_state: web::Data<Arc<AppState>>,
+    _app_config: web::Data<Arc<AppConfig>>,
+    req_body: web::Json<GenerateMemoriesRequest>,
+) -> Result<impl Responder, actix_web::Error> {
+    let client = app_state.keywords_client.clone();
+    let user_id = req_body.user_id.clone();
+    let user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get user messages: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    
+    // let mut rng = rand::thread_rng();
+    // let mut shuffled_messages = user_messages.clone();
+    // shuffled_messages.shuffle(&mut rng);
+
+    // info!("Number of user messages: {}", user_messages.len());
+
+    let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
+        ChatCompletionRequestSystemMessageArgs::default()
+            .content(
+                "You are an AI agent that specializes in infering user traits given a list of their chat messages."
+            )
+            .build()
+            .map_err(|e| {
+                error!("Failed to build system message: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?
+            .into(),
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(format!(
+                "Here is a list of the user's chat messages:\n\"\"\"{}\"\"\"\n\nYour task is to use these messages to generate a list of traits that the user has. Use the messages to make generalizations about the user's skills, interests and personality.\nYou will save each trait as a memory. Generate as many distinct memories as you can. Only make a single tool call!",
+                user_messages[0..100].iter().map(|m| m.text.clone()).collect::<Vec<String>>().join("\n\n")
+            ))
+            .build()
+            .map_err(|e| {
+                error!("Failed to build user message: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?
+            .into(),
+    ];
+
+    let request = CreateChatCompletionRequestArgs::default()
+        // .max_tokens(512u32)
+        .model("claude-3-5-sonnet-20240620")
+        .messages(ai_messages)
+        .tools(vec![
+            ChatCompletionToolArgs::default()
+                .r#type(ChatCompletionToolType::Function)
+                .function(
+                    FunctionObjectArgs::default()
+                        .name("generate_memories")
+                        .description("Create a new memory based on the user's input.")
+                        .parameters(json!({
+                            "type": "object",
+                            "properties": {
+                                "generalizations": {
+                                    "type": "string",
+                                    "description": "a list of generalizations made about the user's skills, interests, and personality",
+                                },
+                                "memories": {
+                                    "type": "array",
+                                    "description": "a list of single short sentence descriptions of one user trait",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "required": ["generalizations", "memoriess"],
+                        }))
+                        .build()
+                        .map_err(|e| {
+                            error!("Failed to build function: {:?}", e);
+                            actix_web::error::ErrorInternalServerError(e)
+                        })?,
+                )
+                .build()
+                .map_err(|e| {
+                    error!("Failed to build tool call: {:?}", e);
+                    actix_web::error::ErrorInternalServerError(e)
+                })?,
+            ])
+            .build()
+            .map_err(|e| {
+                error!("Failed to build chat completion request: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+
+    let response = client
+        .chat()
+        .create(request)
+        .await
+        .map_err(|e| {
+            error!("Failed to get chat completion response: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?
+        .choices
+        .first()
+        .unwrap()
+        .message
+        .clone();
+
+    // info!("Memory response content: {:?}", response);
+
+    if let Some(tool_calls) = response.tool_calls {
+        for tool_call in tool_calls {
+            let name = tool_call.function.name.clone();
+            let args = tool_call.function.arguments.clone();
+
+            call_fn(&app_state.pool, &name, &args, user_id.as_str())
+                .await
+                .map_err(|e| {
+                    error!("Failed to save memories: {:?}", e);
+                    actix_web::error::ErrorInternalServerError(e)
+                })?;
+        }
+    }
+
+    Ok(web::Json("ok"))
 }

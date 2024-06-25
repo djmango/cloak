@@ -100,6 +100,10 @@ async fn main(
                         .service(routes::pay::paid)
                         .service(routes::pay::payment_success),
                 )
+                .service(
+                    web::scope("/memory")
+                        .service(routes::memory::generate_memories_from_chat_history),
+                )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
                 .service(Scalar::with_url("/scalar", openapi))

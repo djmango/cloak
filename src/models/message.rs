@@ -239,4 +239,20 @@ impl Message {
 
         Ok(())
     }
+
+    // Get all messages for a given user ID
+    pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str) -> Result<Vec<Message>> {
+        let query_str = r#"
+            SELECT * FROM messages WHERE user_id = $1
+        "#;
+
+        let rows = query(query_str)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+        let messages = rows.into_iter().map(|row| Message::from_row(&row).unwrap()).collect::<Vec<Message>>();
+
+        Ok(messages)
+    }
 }
