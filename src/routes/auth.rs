@@ -12,6 +12,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
+use utoipa::OpenApi;
 
 use crate::models::User;
 use crate::types::{
@@ -20,7 +21,18 @@ use crate::types::{
 use crate::AppState;
 use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 
+#[derive(OpenApi)]
+#[openapi(
+    paths(login, signup, refresh_token, get_user,),
+    components(schemas(GetUserResponse, WorkOSAuthRequest, WorkOSAuthResponse, WorkOSUser))
+)]
+pub struct ApiDoc;
+
 /// A redirect to the WorkOS login page
+#[utoipa::path(
+    get,
+    responses((status = 302, description = "Redirect to WorkOS login page"))
+)]
 #[get("/login")]
 async fn login() -> Result<impl Responder, Error> {
     let url = "https://authkit.i.inc/";
@@ -28,6 +40,10 @@ async fn login() -> Result<impl Responder, Error> {
 }
 
 /// A redirect to the WorkOS login page
+#[utoipa::path(
+    get,
+    responses((status = 302, description = "Redirect to WorkOS signup page"))
+)]
 #[get("/signup")]
 async fn signup() -> Result<impl Responder, Error> {
     let url = "https://authkit.i.inc/sign-up";
@@ -102,8 +118,12 @@ struct RefreshTokenResponse {
     token: String,
 }
 
-#[get("/token/refresh")]
 /// Refresh the token for an authenticated user, really just generates a new token
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "Refreshed token for user", body = RefreshTokenResponse, content_type = "application/json"))
+)]
+#[get("/token/refresh")]
 async fn refresh_token(
     authenticated_user: AuthenticatedUser,
     app_config: web::Data<Arc<AppConfig>>,
@@ -122,6 +142,10 @@ async fn refresh_token(
 }
 
 /// Get the user information for the authenticated user
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "User information", body = WorkOSUser, content_type = "application/json"))
+)]
 #[get("/user")]
 async fn get_user(
     authenticated_user: AuthenticatedUser,

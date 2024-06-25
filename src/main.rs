@@ -30,7 +30,11 @@ struct AppState {
 #[openapi(
         nest(
             (path = "/", api = routes::hello::ApiDoc),
+            (path = "/auth", api = routes::auth::ApiDoc),
+            (path = "/chats", api = routes::chat::ApiDoc),
+            (path = "/pay", api = routes::pay::ApiDoc),
             (path = "/oai", api = routes::oai::ApiDoc),
+            (path = "/sync", api = routes::sync::ApiDoc),
         ),
         tags(
             (name = "cloak", description = "Invisibiliy cloak API, powering i.inc and related services.")

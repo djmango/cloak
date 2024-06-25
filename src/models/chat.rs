@@ -3,9 +3,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
 use tracing::debug;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Chat {
     pub id: Uuid,
     pub user_id: String,
@@ -36,7 +37,7 @@ impl Chat {
         pool: &PgPool,
         user_id: &str,
         chat_id: Option<Uuid>,
-        parent_message_id: Option<Uuid>
+        parent_message_id: Option<Uuid>,
     ) -> Result<Self> {
         // Fetch by chat_id if it exists
         if let Some(chat_id) = chat_id {
@@ -98,7 +99,7 @@ impl Chat {
         let chat = Chat {
             user_id: user_id.to_string(),
             name: "New Chat".to_string(),
-            parent_message_id, 
+            parent_message_id,
             ..Default::default()
         };
         let chat = query_as!(

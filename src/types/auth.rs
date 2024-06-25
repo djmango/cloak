@@ -1,12 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema, Debug)]
 pub struct AuthCallbackQuery {
     pub code: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, ToSchema, Debug)]
 pub struct WorkOSUser {
     pub object: String,
     pub id: String,
@@ -20,7 +21,7 @@ pub struct WorkOSUser {
 }
 
 // For the request payload
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema, Debug)]
 pub struct WorkOSAuthRequest {
     pub client_id: String,
     pub client_secret: String,
@@ -34,7 +35,7 @@ pub struct WorkOSAuthRequest {
     pub invitation_code: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema, Debug)]
 pub struct WorkOSAuthResponse {
     pub user: WorkOSUser,
     #[allow(dead_code)] // We never really use organization_id but whatever
@@ -49,7 +50,7 @@ pub struct WorkOSCreateUserWebhookPayload {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Claims {
     pub sub: String,
     pub exp: usize,
@@ -62,7 +63,7 @@ pub struct ListMetadata {
     pub after: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct GetUserResponse {
     pub data: Vec<WorkOSUser>,
     pub list_metadata: ListMetadata,

@@ -14,6 +14,7 @@ use stripe::{
     UpdateCustomer,
 };
 use tracing::{error, info, warn};
+use utoipa::OpenApi;
 
 use crate::middleware::auth::AuthenticatedUser;
 use crate::routes::auth::{user_email_to_user, user_id_to_user};
@@ -22,6 +23,18 @@ use crate::types::{
 };
 use crate::{AppConfig, AppState};
 
+#[derive(OpenApi)]
+#[openapi(
+    paths(get_invite, list_invites, checkout, paid, manage),
+    components(schemas(CheckoutRequest, InviteQuery, ManageResponse, UserInvite))
+)]
+pub struct ApiDoc;
+
+/// Create an invite for a user given their email and a promotion code
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "User invite stored successfully", body = String, content_type = "text/plain"))
+)]
 #[get("/invite")]
 async fn get_invite(
     app_state: web::Data<Arc<AppState>>,
@@ -83,6 +96,11 @@ async fn get_invite(
     }
 }
 
+/// List all user invites or filter by a promotion code
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "List of user invites", body = Vec<UserInvite>, content_type = "application/json"))
+)]
 #[get("/list_invites")]
 async fn list_invites(
     app_state: web::Data<Arc<AppState>>,
@@ -174,6 +192,12 @@ async fn payment_success(
     Ok(web::Redirect::to("invisibility://paid"))
 }
 
+/// Create a checkout session for a user given their email
+#[utoipa::path(
+    get,
+    request_body = CheckoutRequest,
+    responses((status = 200, description = "Checkout session created", body = String, content_type = "text/plain"))
+)]
 #[get("/checkout")]
 async fn checkout(
     app_state: web::Data<Arc<AppState>>,
@@ -299,6 +323,12 @@ async fn checkout(
     }
 }
 
+/// Check if a user has an active subscription
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "User has an active subscription", body = String, content_type = "text/plain")),
+    responses((status = 402, description = "User does not have an active subscription", body = String, content_type = "text/plain"))
+)]
 #[get("/paid")]
 async fn paid(
     app_state: web::Data<Arc<AppState>>,
@@ -355,6 +385,11 @@ async fn paid(
     }
 }
 
+/// Redirect to the Stripe billing portal for a user
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "Billing portal URL", body = ManageResponse, content_type = "application/json"))
+)]
 #[get("/manage")]
 async fn manage(
     app_state: web::Data<Arc<AppState>>,
