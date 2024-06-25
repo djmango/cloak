@@ -2,9 +2,11 @@ use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
 use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestSystemMessage,
-    ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest,
+    ChatCompletionFunctionCall, ChatCompletionRequestMessage,
+    ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartText,
+    ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessageContent,
+    ChatCompletionResponseFormat, ChatCompletionStreamOptions, ChatCompletionTool,
+    ChatCompletionToolChoiceOption, CreateChatCompletionRequest, InvisibilityMetadata,
 };
 use async_openai::Client;
 use bytes::Bytes;
@@ -15,13 +17,14 @@ use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
+use utoipa::OpenApi;
 
-use crate::routes::memory::get_all_user_memories;
-use crate::routes::memory::process_memory;
+// use crate::routes::memory::get_all_user_memories;
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
 use crate::models::message::Message;
+use crate::routes::memory::process_memory;
 use crate::AppState;
 
 #[derive(OpenApi)]
@@ -316,7 +319,9 @@ async fn chat(
                         // in the chat as regenerated
                         match invisibility_metadata.as_ref() {
                             Some(metadata) => {
-                                if let Some(regenerate_from_message_id) = metadata.regenerate_from_message_id {
+                                if let Some(regenerate_from_message_id) =
+                                    metadata.regenerate_from_message_id
+                                {
                                     if let Err(e) = Message::mark_regenerated_from_message_id(
                                         &app_state.pool,
                                         regenerate_from_message_id,
@@ -327,7 +332,7 @@ async fn chat(
                                         // You might want to handle this error case more explicitly
                                     }
                                 }
-                            },
+                            }
                             None => {} // Do nothing if invisibility_metadata is None
                         }
 
