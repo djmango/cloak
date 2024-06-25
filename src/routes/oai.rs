@@ -41,10 +41,10 @@ use crate::AppState;
 )]
 pub struct ApiDoc;
 
+/// The primary oai mocked streaming chat completion endpoint, with all i.inc features
 #[utoipa::path(
     get,
-    path = "/v1/chat/completions",
-responses(
+    responses(
         (status = 200, description = "Chat completion API", body = ChatCompletionResponse, content_type = "application/json"),
         (status = 200, description = "Chat completion API (streaming)", body = ChatCompletionChunk, content_type = "text/event-stream"),
         (status = 400, description = "Bad Request"),

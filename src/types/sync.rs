@@ -1,7 +1,9 @@
-use crate::models::{Chat, File, Message};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize, Debug)]
+use crate::models::{Chat, File, Message};
+
+#[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct AllResponse {
     pub chats: Vec<Chat>,
     pub messages: Vec<Message>,

@@ -8,9 +8,10 @@ use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool, Type};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
 #[serde(rename_all = "lowercase")] // JSON value name
 pub enum Role {
@@ -20,7 +21,7 @@ pub enum Role {
     User,
 }
 
-#[derive(Debug, FromRow, Serialize, Deserialize)]
+#[derive(Debug, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Message {
     pub id: Uuid,
     pub chat_id: Uuid,
@@ -54,7 +55,7 @@ impl Message {
         pool: &PgPool,
         chat_id: Uuid,
         user_id: &str,
-        model_id: Option<String>, 
+        model_id: Option<String>,
         text: &str,
         role: Role,
     ) -> Result<Self> {
