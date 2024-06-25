@@ -2,11 +2,9 @@ use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
 use async_openai::types::{
-    ChatCompletionFunctionCall, ChatCompletionRequestMessage,
-    ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartText,
-    ChatCompletionRequestUserMessageContent, ChatCompletionResponseFormat,
-    ChatCompletionStreamOptions, ChatCompletionTool, ChatCompletionToolChoiceOption,
-    CreateChatCompletionRequest, InvisibilityMetadata,
+    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
+    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestSystemMessage,
+    ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest,
 };
 use async_openai::Client;
 use bytes::Bytes;
@@ -16,8 +14,10 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error};
-use utoipa::OpenApi;
+use tracing::{debug, error, info};
+
+use crate::routes::memory::get_all_user_memories;
+use crate::routes::memory::process_memory;
 
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
@@ -67,6 +67,26 @@ async fn chat(
 
     let mut request_args = req_body.into_inner();
 
+    // NOTE disabling memory injection for now
+    // // Get all user memories
+    // let all_memories = get_all_user_memories(
+    //     Arc::new(app_state.pool.clone()),
+    //     &authenticated_user.user_id,
+    // )
+    // .await
+    // .map_err(|e| {
+    //     error!("Error fetching user memories: {:?}", e);
+    //     actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
+    // })?;
+
+    // // Prepend all memories to the messages as a system message
+    // request_args.messages.insert(0, ChatCompletionRequestMessage::System(
+    //     ChatCompletionRequestSystemMessage {
+    //         content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
+    //         name: Some("Memory".to_string()),
+    //     }
+    // ));
+
     // For now, we only support streaming completions
     request_args.stream = Some(true);
 
@@ -87,19 +107,14 @@ async fn chat(
         "perplexity/sonar-medium-online" => {
             "openrouter/perplexity/llama-3-sonar-large-32k-online".to_string()
         }
-        "anthropic/claude-3-opus:beta" => {
-            "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string()
-        }
-        "claude-3-opus-20240229" => "bedrock/anthropic.claude-3-opus-20240229-v1:0".to_string(),
-        "anthropic/claude-3-sonnet:beta" => "claude-3-sonnet-20240229".to_string(),
-        "anthropic/claude-3-haiku:beta" => "claude-3-haiku-20240307".to_string(),
+        "openrouter/google/gemini-pro-1.5" => "gemini-1.5-flash-001".to_string(),
         _ => request_args.model,
     };
 
     // Set fallback models
     request_args.fallback = Some(vec![
-        "gpt-4-turbo-2024-04-09".to_string(),
-        "claude-3-sonnet-20240229".to_string(),
+        "gpt-4o".to_string(),
+        "claude-3-5-sonnet-20240620".to_string(),
     ]);
 
     // Ensure we have at least one message, else return an error
@@ -193,6 +208,10 @@ async fn chat(
     // Clone the invisibility metadata for use in the async block
     let invisibility_metadata = request_args.invisibility.clone();
 
+    // Remove the invisibility field from the request_args
+    // This field is not part of the OpenAI API and is only used internally
+    request_args.invisibility = None;
+
     let model_id = request_args.model.clone();
 
     let response = client
@@ -204,7 +223,7 @@ async fn chat(
             actix_web::error::ErrorInternalServerError(e.to_string())
         })?;
 
-    // This logging has a non-zero cost, but its essentially trival, less than 5 microseconds theorectically
+    // This logging has a non-zero cost, but its essentially trivial, less than 5 microseconds theoretically
     let response_content = Arc::new(Mutex::new(String::new()));
 
     // Create a stream that processes the response from llm host and stores the resulting assistant message
@@ -271,7 +290,7 @@ async fn chat(
                 let content = response_content_clone.lock().await.clone();
                 debug!("Stream processing completed");
 
-                // Spawn a new task to store the results in the database asynchonously
+                // Spawn a new task to store the results in the database asynchronously
                 actix_web::rt::spawn({
                     async move {
                         // Determine the chat to use, either from invisibility or by creating new
@@ -313,7 +332,7 @@ async fn chat(
                         if let Some(last_oai_message) = last_message_option {
                             match Message::from_oai(
                                 &app_state.pool,
-                                last_oai_message,
+                                last_oai_message.clone(),
                                 chat.id,
                                 &user_id.clone(),
                                 Some(model_id.clone()),
@@ -329,6 +348,16 @@ async fn chat(
                                     error!("Error creating message from OAI message: {:?}", e);
                                 }
                             };
+
+                            // Process memory
+                            info!("Processing memory");
+                            _ = process_memory(
+                                &app_state.pool,
+                                &chat.user_id,
+                                vec![last_oai_message],
+                                client,
+                            )
+                            .await;
                         } else {
                             error!("No messages found in request_args.messages");
                         }

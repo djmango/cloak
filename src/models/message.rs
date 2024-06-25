@@ -97,7 +97,7 @@ impl Message {
         oai_message: ChatCompletionRequestMessage,
         chat_id: Uuid,
         user_id: &str,
-        model_id: Option<String>, // Add this parameter
+        model_id: Option<String>,
         invisibility_metadata: Option<InvisibilityMetadata>,
         created_at: Option<DateTime<Utc>>,
     ) -> Result<Self> {
@@ -143,7 +143,7 @@ impl Message {
             user_id: user_id.to_string(),
             text: content,
             role,
-            model_id, // Add this field
+            model_id,
             created_at: created_at.unwrap_or_else(Utc::now),
             ..Default::default()
         };
