@@ -8,12 +8,15 @@ use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
+use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 
 mod config;
 mod middleware;
 mod models;
 mod prompts;
 mod routes;
+mod types;
 
 #[derive(Clone)]
 struct AppState {
@@ -22,6 +25,22 @@ struct AppState {
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
 }
+
+#[derive(OpenApi)]
+#[openapi(
+        nest(
+            (path = "/", api = routes::hello::ApiDoc),
+            (path = "/auth", api = routes::auth::ApiDoc),
+            (path = "/chats", api = routes::chat::ApiDoc),
+            (path = "/pay", api = routes::pay::ApiDoc),
+            (path = "/oai", api = routes::oai::ApiDoc),
+            (path = "/sync", api = routes::sync::ApiDoc),
+        ),
+        tags(
+            (name = "cloak", description = "Invisibiliy cloak API, powering i.inc and related services.")
+        )
+    )]
+struct ApiDoc;
 
 #[shuttle_runtime::main]
 async fn main(
@@ -41,6 +60,8 @@ async fn main(
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
+
+    let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {
         cfg.service(
@@ -81,6 +102,7 @@ async fn main(
                 )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
+                .service(Scalar::with_url("/scalar", openapi))
                 .wrap(middleware::auth::AuthenticationMiddleware {
                     app_config: app_config.clone(),
                 })

@@ -1,8 +1,3 @@
-use crate::config::AppConfig;
-use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::models::message::Message;
-use crate::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
@@ -21,6 +16,41 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 
+use crate::routes::memory::get_all_user_memories;
+use crate::routes::memory::process_memory;
+use crate::config::AppConfig;
+use crate::middleware::auth::AuthenticatedUser;
+use crate::models::chat::Chat;
+use crate::models::message::Message;
+use crate::AppState;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(chat),
+    components(schemas(
+        CreateChatCompletionRequest,
+        ChatCompletionRequestMessage,
+        ChatCompletionResponseFormat,
+        ChatCompletionStreamOptions,
+        ChatCompletionTool,
+        ChatCompletionToolChoiceOption,
+        ChatCompletionFunctionCall,
+        InvisibilityMetadata,
+    ))
+)]
+pub struct ApiDoc;
+
+/// The primary oai mocked streaming chat completion endpoint, with all i.inc features
+#[utoipa::path(
+    get,
+    responses(
+        (status = 200, description = "Chat completion API", body = ChatCompletionResponse, content_type = "application/json"),
+        (status = 200, description = "Chat completion API (streaming)", body = ChatCompletionChunk, content_type = "text/event-stream"),
+        (status = 400, description = "Bad Request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
@@ -36,6 +66,25 @@ async fn chat(
 
     let mut request_args = req_body.into_inner();
 
+    // NOTE disabling memory injection for now
+    // // Get all user memories
+    // let all_memories = get_all_user_memories(
+    //     Arc::new(app_state.pool.clone()),
+    //     &authenticated_user.user_id,
+    // )
+    // .await
+    // .map_err(|e| {
+    //     error!("Error fetching user memories: {:?}", e);
+    //     actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
+    // })?;
+
+    // // Prepend all memories to the messages as a system message
+    // request_args.messages.insert(0, ChatCompletionRequestMessage::System(
+    //     ChatCompletionRequestSystemMessage {
+    //         content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
+    //         name: Some("Memory".to_string()),
+    //     }
+    // ));
 
     // For now, we only support streaming completions
     request_args.stream = Some(true);
@@ -159,7 +208,8 @@ async fn chat(
     let invisibility_metadata = request_args.invisibility.clone();
 
     // Remove the invisibility field from the request_args
-    // This field is not part of the OpenAI API and is only used interinally
+
+    // This field is not part of the OpenAI API and is only used internally
     request_args.invisibility = None;
 
     let model_id = request_args.model.clone();
@@ -302,7 +352,15 @@ async fn chat(
                                 }
                             };
 
-                      
+                            // Process memory
+                            info!("Processing memory");
+                            _ = process_memory(
+                                &app_state.pool,
+                                &chat.user_id,
+                                vec![last_oai_message],
+                                client,
+                            )
+                            .await;
                         } else {
                             error!("No messages found in request_args.messages");
                         }
