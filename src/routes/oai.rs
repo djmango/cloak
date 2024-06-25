@@ -18,7 +18,6 @@ use tracing::{debug, error, info};
 
 use crate::routes::memory::get_all_user_memories;
 use crate::routes::memory::process_memory;
-
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
@@ -209,6 +208,7 @@ async fn chat(
     let invisibility_metadata = request_args.invisibility.clone();
 
     // Remove the invisibility field from the request_args
+
     // This field is not part of the OpenAI API and is only used internally
     request_args.invisibility = None;
 
@@ -298,10 +298,10 @@ async fn chat(
                             &app_state.pool,
                             user_id.clone().as_str(),
                             chat_id,
-                            invisibility_metadata
-                                .clone()
-                                .unwrap()
-                                .branch_from_message_id,
+                            match invisibility_metadata.as_ref() {
+                                Some(metadata) => metadata.branch_from_message_id,
+                                None => None,
+                            },
                         )
                         .await
                         {
@@ -314,21 +314,24 @@ async fn chat(
 
                         // If the metadata includes a regenerate_from_message_id, mark the messages after that
                         // in the chat as regenerated
-                        if let Some(invisibility_metadata) = invisibility_metadata.clone() {
-                            if let Some(regenerate_from_message_id) =
-                                invisibility_metadata.regenerate_from_message_id
-                            {
-                                if let Err(e) = Message::mark_regenerated_from_message_id(
-                                    &app_state.pool,
-                                    regenerate_from_message_id,
-                                )
-                                .await
-                                {
-                                    error!("Error marking chat as regenerated: {:?}", e);
+                        match invisibility_metadata.as_ref() {
+                            Some(metadata) => {
+                                if let Some(regenerate_from_message_id) = metadata.regenerate_from_message_id {
+                                    if let Err(e) = Message::mark_regenerated_from_message_id(
+                                        &app_state.pool,
+                                        regenerate_from_message_id,
+                                    )
+                                    .await
+                                    {
+                                        error!("Error marking chat as regenerated: {:?}", e);
+                                        // You might want to handle this error case more explicitly
+                                    }
                                 }
-                            }
+                            },
+                            None => {} // Do nothing if invisibility_metadata is None
                         }
 
+                        // Insert into db a message, the last OAI message (prompt). This should always be a user message
                         if let Some(last_oai_message) = last_message_option {
                             match Message::from_oai(
                                 &app_state.pool,
