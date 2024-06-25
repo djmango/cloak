@@ -1,8 +1,3 @@
-use crate::config::AppConfig;
-use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::models::message::Message;
-use crate::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
@@ -24,6 +19,39 @@ use tracing::{debug, error, info};
 use crate::routes::memory::get_all_user_memories;
 use crate::routes::memory::process_memory;
 
+use crate::config::AppConfig;
+use crate::middleware::auth::AuthenticatedUser;
+use crate::models::chat::Chat;
+use crate::models::message::Message;
+use crate::AppState;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(chat),
+    components(schemas(
+        CreateChatCompletionRequest,
+        ChatCompletionRequestMessage,
+        ChatCompletionResponseFormat,
+        ChatCompletionStreamOptions,
+        ChatCompletionTool,
+        ChatCompletionToolChoiceOption,
+        ChatCompletionFunctionCall,
+        InvisibilityMetadata,
+    ))
+)]
+pub struct ApiDoc;
+
+/// The primary oai mocked streaming chat completion endpoint, with all i.inc features
+#[utoipa::path(
+    get,
+    responses(
+        (status = 200, description = "Chat completion API", body = ChatCompletionResponse, content_type = "application/json"),
+        (status = 200, description = "Chat completion API (streaming)", body = ChatCompletionChunk, content_type = "text/event-stream"),
+        (status = 400, description = "Bad Request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
@@ -270,6 +298,10 @@ async fn chat(
                             &app_state.pool,
                             user_id.clone().as_str(),
                             chat_id,
+                            invisibility_metadata
+                                .clone()
+                                .unwrap()
+                                .branch_from_message_id,
                         )
                         .await
                         {
@@ -297,7 +329,6 @@ async fn chat(
                             }
                         }
 
-                        // Insert into db a message, the last OAI message (prompt). This should always be a user message
                         if let Some(last_oai_message) = last_message_option {
                             match Message::from_oai(
                                 &app_state.pool,

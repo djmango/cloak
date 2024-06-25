@@ -12,7 +12,7 @@ use std::{
 };
 use tracing::{debug, warn};
 
-use crate::{routes::auth::Claims, AppConfig};
+use crate::{types::Claims, AppConfig};
 
 #[derive(Clone)]
 pub struct AuthenticatedUser {
