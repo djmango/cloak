@@ -248,7 +248,7 @@ async fn chat(
                             &app_state.pool,
                             user_id.clone().as_str(),
                             chat_id,
-                            match invisibility_metadata {
+                            match invisibility_metadata.as_ref() {
                                 Some(metadata) => metadata.branch_from_message_id,
                                 None => None,
                             },
@@ -264,7 +264,7 @@ async fn chat(
 
                         // If the metadata includes a regenerate_from_message_id, mark the messages after that
                         // in the chat as regenerated
-                        match invisibility_metadata {
+                        match invisibility_metadata.as_ref() {
                             Some(metadata) => {
                                 if let Some(regenerate_from_message_id) = metadata.regenerate_from_message_id {
                                     if let Err(e) = Message::mark_regenerated_from_message_id(
