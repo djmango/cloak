@@ -9,3 +9,4 @@ pub use devent::Devent;
 pub use file::File;
 pub use message::Message;
 pub use user::User;
+pub mod memory;
