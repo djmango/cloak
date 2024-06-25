@@ -8,9 +8,10 @@ use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool, Type};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
 #[serde(rename_all = "lowercase")] // JSON value name
 pub enum Role {
@@ -20,7 +21,7 @@ pub enum Role {
     User,
 }
 
-#[derive(Debug, FromRow, Serialize, Deserialize)]
+#[derive(Debug, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Message {
     pub id: Uuid,
     pub chat_id: Uuid,
@@ -54,7 +55,7 @@ impl Message {
         pool: &PgPool,
         chat_id: Uuid,
         user_id: &str,
-        model_id: Option<String>, 
+        model_id: Option<String>,
         text: &str,
         role: Role,
     ) -> Result<Self> {
@@ -96,7 +97,7 @@ impl Message {
         oai_message: ChatCompletionRequestMessage,
         chat_id: Uuid,
         user_id: &str,
-        model_id: Option<String>, // Add this parameter
+        model_id: Option<String>,
         invisibility_metadata: Option<InvisibilityMetadata>,
         created_at: Option<DateTime<Utc>>,
     ) -> Result<Self> {
@@ -142,7 +143,7 @@ impl Message {
             user_id: user_id.to_string(),
             text: content,
             role,
-            model_id, // Add this field
+            model_id,
             created_at: created_at.unwrap_or_else(Utc::now),
             ..Default::default()
         };

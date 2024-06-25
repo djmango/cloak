@@ -1,26 +1,17 @@
-use crate::config::AppConfig;
-use crate::models::user::User;
-use crate::routes::auth::WorkOSUser;
-use crate::routes::pay::LoopsContact;
-use crate::AppState;
 use actix_web::HttpResponse;
 use actix_web::{post, web};
-use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WorkOSCreateUserWebhookPayload {
-    id: String,
-    event: String,
-    data: WorkOSUser,
-    created_at: DateTime<Utc>,
-}
+use crate::config::AppConfig;
+use crate::models::user::User;
+use crate::types::LoopsContact;
+use crate::types::WorkOSCreateUserWebhookPayload;
+use crate::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
 
