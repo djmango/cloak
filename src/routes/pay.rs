@@ -1,9 +1,8 @@
 use actix_web::web::Json;
 use actix_web::{get, web, Responder};
 use anyhow::anyhow;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -15,24 +14,27 @@ use stripe::{
     UpdateCustomer,
 };
 use tracing::{error, info, warn};
+use utoipa::OpenApi;
 
 use crate::middleware::auth::AuthenticatedUser;
 use crate::routes::auth::{user_email_to_user, user_id_to_user};
+use crate::types::{
+    CheckoutRequest, InviteQuery, LoopsContact, ManageResponse, PaymentSuccessRequest, UserInvite,
+};
 use crate::{AppConfig, AppState};
 
-#[derive(Serialize, Deserialize, Clone)]
-struct UserInvite {
-    email: String,
-    code: String,
-    created_at: Option<DateTime<Utc>>,
-}
+#[derive(OpenApi)]
+#[openapi(
+    paths(get_invite, list_invites, checkout, paid, manage),
+    components(schemas(CheckoutRequest, InviteQuery, ManageResponse, UserInvite))
+)]
+pub struct ApiDoc;
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct LoopsContact {
-    pub email: String,
-    pub source: String,
-}
-
+/// Create an invite for a user given their email and a promotion code
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "User invite stored successfully", body = String, content_type = "text/plain"))
+)]
 #[get("/invite")]
 async fn get_invite(
     app_state: web::Data<Arc<AppState>>,
@@ -94,11 +96,11 @@ async fn get_invite(
     }
 }
 
-#[derive(Deserialize)]
-struct InviteQuery {
-    code: Option<String>,
-}
-
+/// List all user invites or filter by a promotion code
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "List of user invites", body = Vec<UserInvite>, content_type = "application/json"))
+)]
 #[get("/list_invites")]
 async fn list_invites(
     app_state: web::Data<Arc<AppState>>,
@@ -136,12 +138,6 @@ async fn list_invites(
             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct PaymentSuccessRequest {
-    session_id: String,
-    user_email: String,
 }
 
 #[get("/payment_success")]
@@ -196,11 +192,12 @@ async fn payment_success(
     Ok(web::Redirect::to("invisibility://paid"))
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct CheckoutRequest {
-    email: String,
-}
-
+/// Create a checkout session for a user given their email
+#[utoipa::path(
+    get,
+    request_body = CheckoutRequest,
+    responses((status = 200, description = "Checkout session created", body = String, content_type = "text/plain"))
+)]
 #[get("/checkout")]
 async fn checkout(
     app_state: web::Data<Arc<AppState>>,
@@ -326,6 +323,12 @@ async fn checkout(
     }
 }
 
+/// Check if a user has an active subscription
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "User has an active subscription", body = String, content_type = "text/plain")),
+    responses((status = 402, description = "User does not have an active subscription", body = String, content_type = "text/plain"))
+)]
 #[get("/paid")]
 async fn paid(
     app_state: web::Data<Arc<AppState>>,
@@ -382,11 +385,11 @@ async fn paid(
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct ManageResponse {
-    url: String,
-}
-
+/// Redirect to the Stripe billing portal for a user
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "Billing portal URL", body = ManageResponse, content_type = "application/json"))
+)]
 #[get("/manage")]
 async fn manage(
     app_state: web::Data<Arc<AppState>>,

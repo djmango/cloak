@@ -1,7 +1,3 @@
-use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::prompts::Prompts;
-use crate::AppState;
 use actix_web::{delete, put, web, Error, HttpResponse};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
@@ -10,22 +6,40 @@ use async_openai::types::{
     CreateChatCompletionRequest,
 };
 use async_openai::Client;
-use serde::Deserialize;
 use sqlx::query_scalar;
 use std::sync::Arc;
 use tracing::error;
+use utoipa::OpenApi;
 use uuid::Uuid;
 
-#[derive(Deserialize)]
-struct UpdateChatRequest {
-    name: String,
-}
+use crate::middleware::auth::AuthenticatedUser;
+use crate::models::{file::Filetype, message::Role, Chat, File, Message};
+use crate::prompts::Prompts;
+use crate::types::{AutorenameChatRequest, UpdateChatRequest};
+use crate::AppState;
 
-#[derive(Deserialize)]
-struct AutorenameChatRequest {
-    text: String,
-}
+#[derive(OpenApi)]
+#[openapi(
+    paths(autorename_chat, update_chat, delete_chat),
+    components(schemas(
+        AutorenameChatRequest,
+        UpdateChatRequest,
+        Chat,
+        File,
+        Filetype,
+        Message,
+        Role
+    ))
+)]
+pub struct ApiDoc;
 
+/// Autorename chat given the oldest non-regenerated message
+/// Body is optional for alternative autorename prompt target
+#[utoipa::path(
+    put,
+    request_body = Option<AutorenameChatRequest>,
+    responses((status = 200, description = "Autorenamed chat given the oldest non-regenerated message", body = Chat, content_type = "application/json"))
+)]
 #[put("/{chat_id}/autorename")]
 async fn autorename_chat(
     app_state: web::Data<Arc<AppState>>,
@@ -125,6 +139,12 @@ async fn autorename_chat(
     Ok(web::Json(chat))
 }
 
+/// Update chat details by id
+#[utoipa::path(
+    put,
+    request_body = UpdateChatRequest,
+    responses((status = 200, description = "Updated chat", body = Chat, content_type = "application/json"))
+)]
 #[put("/{chat_id}")]
 async fn update_chat(
     app_state: web::Data<Arc<AppState>>,
@@ -146,6 +166,11 @@ async fn update_chat(
     Ok(web::Json(chat))
 }
 
+/// Delete chat by id
+#[utoipa::path(
+    delete,
+    responses((status = 204, description = "Delete chat"))
+)]
 #[delete("/{chat_id}")]
 async fn delete_chat(
     app_state: web::Data<Arc<AppState>>,

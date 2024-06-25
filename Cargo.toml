@@ -32,6 +32,8 @@ shuttle-runtime = "0.46.0"
 sqlx = { version = "0.7", features = ["runtime-tokio", "tls-native-tls", "postgres", "macros", "time", "chrono", "uuid"] }
 tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1.40"
+utoipa = { version = "5.0.0-alpha.0", features = ["actix_extras", "chrono", "uuid", "url"] }
+utoipa-scalar = { version = "0.2.0-alpha.0", features = ["actix-web"] }
 uuid = { version = "1.8.0", features = ["serde", "v4"] }
 
 [dev-dependencies]

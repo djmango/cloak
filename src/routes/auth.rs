@@ -1,12 +1,9 @@
-use crate::models::user::User;
-use crate::AppState;
-use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 use actix_web::{
     get,
     web::{self, Json},
     Error, Responder,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::stream::{FuturesUnordered, StreamExt};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Client;
@@ -15,67 +12,27 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
+use utoipa::OpenApi;
 
-#[derive(Deserialize)]
-struct AuthCallbackQuery {
-    code: String,
-}
+use crate::models::User;
+use crate::types::{
+    AuthCallbackQuery, Claims, GetUserResponse, WorkOSAuthRequest, WorkOSAuthResponse, WorkOSUser,
+};
+use crate::AppState;
+use crate::{middleware::auth::AuthenticatedUser, AppConfig};
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct WorkOSUser {
-    pub object: String,
-    pub id: String,
-    pub email: String,
-    pub first_name: Option<String>,
-    pub last_name: Option<String>,
-    pub email_verified: bool,
-    pub profile_picture_url: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-// For the request payload
-#[derive(Serialize)]
-struct WorkOSAuthRequest {
-    client_id: String,
-    client_secret: String,
-    grant_type: String,
-    code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ip_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    user_agent: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    invitation_code: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct WorkOSAuthResponse {
-    user: WorkOSUser,
-    #[allow(dead_code)] // We never really use organization_id but whatever
-    organization_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub exp: usize,
-    pub iat: usize,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct ListMetadata {
-    before: Option<String>,
-    after: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct GetUserResponse {
-    data: Vec<WorkOSUser>,
-    list_metadata: ListMetadata,
-}
+#[derive(OpenApi)]
+#[openapi(
+    paths(login, signup, refresh_token, get_user,),
+    components(schemas(GetUserResponse, WorkOSAuthRequest, WorkOSAuthResponse, WorkOSUser))
+)]
+pub struct ApiDoc;
 
 /// A redirect to the WorkOS login page
+#[utoipa::path(
+    get,
+    responses((status = 302, description = "Redirect to WorkOS login page"))
+)]
 #[get("/login")]
 async fn login() -> Result<impl Responder, Error> {
     let url = "https://authkit.i.inc/";
@@ -83,6 +40,10 @@ async fn login() -> Result<impl Responder, Error> {
 }
 
 /// A redirect to the WorkOS login page
+#[utoipa::path(
+    get,
+    responses((status = 302, description = "Redirect to WorkOS signup page"))
+)]
 #[get("/signup")]
 async fn signup() -> Result<impl Responder, Error> {
     let url = "https://authkit.i.inc/sign-up";
@@ -157,8 +118,12 @@ struct RefreshTokenResponse {
     token: String,
 }
 
-#[get("/token/refresh")]
 /// Refresh the token for an authenticated user, really just generates a new token
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "Refreshed token for user", body = RefreshTokenResponse, content_type = "application/json"))
+)]
+#[get("/token/refresh")]
 async fn refresh_token(
     authenticated_user: AuthenticatedUser,
     app_config: web::Data<Arc<AppConfig>>,
@@ -177,6 +142,10 @@ async fn refresh_token(
 }
 
 /// Get the user information for the authenticated user
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "User information", body = WorkOSUser, content_type = "application/json"))
+)]
 #[get("/user")]
 async fn get_user(
     authenticated_user: AuthenticatedUser,
