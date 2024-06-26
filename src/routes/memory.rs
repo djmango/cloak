@@ -17,6 +17,7 @@ use crate::AppState;
 use crate::AppConfig;
 use crate::types::GenerateMemoriesRequest;
 use rand::seq::SliceRandom;
+use rand::Rng;
 
 pub async fn process_memory(
     pool: &PgPool,
@@ -245,14 +246,24 @@ async fn generate_memories_from_chat_history(
     let mut samples = Vec::new();
 
     // Choose n_samples random samples from the user's messages
+    let mut used_indices = Vec::new();
+
     for _ in 0..n_samples {
-        let sample: Vec<Message> = user_messages
-            .windows(sample_size as usize)
-            .collect::<Vec<_>>()
-            .choose(&mut rng)
-            .unwrap_or(&vec![].as_slice())
-            .to_vec();
-        samples.push(sample);
+        let mut sample: Vec<Message> = Vec::new();
+        let mut attempts = 0;
+
+        while sample.is_empty() && attempts < 100 {
+            let index = rng.gen_range(0..(user_messages.len() - sample_size as usize));
+            if used_indices.iter().all(|&i| (i as isize - index as isize).abs() >= sample_size as isize) {
+                sample = user_messages[index..index + sample_size as usize].to_vec();
+                used_indices.push(index);
+            }
+            attempts += 1;
+        }
+
+        if !sample.is_empty() {
+            samples.push(sample);
+        }
     }
 
     info!("Samples: {:?}", n_samples);
