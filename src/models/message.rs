@@ -33,6 +33,7 @@ pub struct Message {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub memory_prompt_id: Option<Uuid>,
+    pub upvoted: Option<bool>,
 }
 
 impl Default for Message {
@@ -48,6 +49,7 @@ impl Default for Message {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             memory_prompt_id: None,
+            upvoted: None,
         }
     }
 }
