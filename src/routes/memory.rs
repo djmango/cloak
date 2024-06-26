@@ -2,7 +2,7 @@
 
 use actix_web::{post, web, Responder};
 use crate::models::memory::Memory;
-use crate::models::Message;
+use crate::models::{MemoryPrompt, Message};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs
@@ -23,9 +23,10 @@ pub async fn process_memory(
     user_id: &str,
     messages: Vec<ChatCompletionRequestMessage>,
     client: Client<OpenAIConfig>,
+    memory_prompt_id: Uuid,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Fetch all memories for the user
-    let user_memories = Memory::get_all_memories(pool, user_id).await?;
+    let user_memories = Memory::get_all_memories(pool, user_id, memory_prompt_id).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
     info!("User memories: {}", formatted_memories);
@@ -125,7 +126,7 @@ pub async fn process_memory(
             let name = tool_call.function.name.clone();
             let args = tool_call.function.arguments.clone();
 
-            call_fn(pool, &name, &args, user_id).await?;
+            call_fn(pool, &name, &args, user_id, memory_prompt_id).await?;
         }
     }
 
@@ -140,13 +141,14 @@ async fn call_fn(
     name: &str,
     args: &str,
     user_id: &str,
+    memory_prompt_id: Uuid,
 ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
     let function_args: serde_json::Value = args.parse()?;
 
     match name {
         "create_memory" => {
             let memory = function_args["memory"].as_str().unwrap();
-            let new_memory = Memory::add_memory(pool, memory, user_id).await?;
+            let new_memory = Memory::add_memory(pool, memory, user_id, memory_prompt_id).await?;
             Ok(json!({
                 "status": "success",
                 "memory_id": new_memory.id,
@@ -178,9 +180,8 @@ async fn call_fn(
             let generalizations = function_args["generalizations"].as_str().unwrap();
             let memories = function_args["memories"].as_array().unwrap();
 
-            info!("User memories: {:?}", memories.len());
             for memory in memories {
-                Memory::add_memory(pool, memory.as_str().unwrap(), user_id).await?;
+                Memory::add_memory(pool, memory.as_str().unwrap(), user_id, memory_prompt_id).await?;
             }
 
             Ok(json!({
@@ -197,9 +198,10 @@ async fn call_fn(
 pub async fn get_all_user_memories(
     pool: Arc<PgPool>,
     user_id: &str,
+    memory_prompt_id: Uuid,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Fetch all memories for the user
-    let user_memories = Memory::get_all_memories(&pool, user_id).await?;
+    // Fetch all memories with a given memory prompt for the user
+    let user_memories = Memory::get_all_memories(&pool, user_id, memory_prompt_id).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
     Ok(formatted_memories)
@@ -212,6 +214,15 @@ async fn generate_memories_from_chat_history(
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
     let client = app_state.keywords_client.clone();
+    
+    let memory_prompt_id = req_body.memory_prompt_id.clone();
+    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get memory prompt: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
     let user_id = req_body.user_id.clone();
     let user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id)
         .await
@@ -220,18 +231,20 @@ async fn generate_memories_from_chat_history(
             actix_web::error::ErrorInternalServerError(e)
         })?;
 
+    // We sample multiple segments of the user's messages to generate distinct memories and avoid over-filling the context
     let sample_size = match req_body.sample_size.clone() {
         Some(s) => s,
         None => std::cmp::min(5, (user_messages.len() as f32 * 0.1).ceil() as u8),
     };
     let n_samples = match req_body.n_samples.clone() {
         Some(n) => n,
-        None => ((user_messages.len() as f32 * 0.1) / sample_size as f32).ceil() as u8, // 20% of the user's messages
+        None => ((user_messages.len() as f32 * 0.1) / sample_size as f32).ceil() as u8, // 10% of the user's messages
     };
     
     let mut rng = rand::thread_rng();
     let mut samples = Vec::new();
 
+    // Choose n_samples random samples from the user's messages
     for _ in 0..n_samples {
         let sample: Vec<Message> = user_messages
             .windows(sample_size as usize)
@@ -246,12 +259,12 @@ async fn generate_memories_from_chat_history(
 
     // info!("Number of user messages: {}", user_messages.len());
 
+    // Iteravively run the memory prompt on each sample
     for sample in samples {
-        // info!("Sample size: {}", sample.len());
         let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
             ChatCompletionRequestSystemMessageArgs::default()
             .content(
-                "You are an AI agent that specializes in infering user traits given a list of their chat messages.\n\nYour task is to use these messages to generate a list of traits that the user has."
+                format!("{}", memory_prompt.prompt)
             )
             .build()
             .map_err(|e| {
@@ -261,8 +274,8 @@ async fn generate_memories_from_chat_history(
             .into(),
         ChatCompletionRequestUserMessageArgs::default()
             .content(format!(
-                "Here is a list of memories that you have already generated for the user:\n\"\"\"{}\"\"\"\n\nHere is a list of the user's chat messages:\n\"\"\"{}\"\"\"\n\nUse the messages to make generalizations about the user's skills, interests and personality.\nYou will save each trait as a memory. Build off of memories that have already been saved, but do not repeat them. Only make a single tool call!",
-                get_all_user_memories(Arc::new(app_state.pool.clone()), &user_id)
+                "Here is a list of memories that you have already generated for the user:\n\"\"\"{}\"\"\"\n\nHere is a list of the user's chat messages:\n\"\"\"{}\"\"\"\n\n",
+                get_all_user_memories(Arc::new(app_state.pool.clone()), &user_id, memory_prompt_id)
                     .await
                     .map_err(|e| {
                         error!("Failed to get user memories: {:?}", e);
@@ -346,7 +359,7 @@ async fn generate_memories_from_chat_history(
                 let name = tool_call.function.name.clone();
                 let args = tool_call.function.arguments.clone();
 
-                call_fn(&app_state.pool, &name, &args, user_id.as_str())
+                call_fn(&app_state.pool, &name, &args, user_id.as_str(), memory_prompt_id)
                     .await
                     .map_err(|e| {
                         error!("Failed to save memories: {:?}", e);

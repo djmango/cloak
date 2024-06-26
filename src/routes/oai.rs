@@ -18,12 +18,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use utoipa::OpenApi;
+use rand::Rng;
 
 // use crate::routes::memory::get_all_user_memories;
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
 use crate::models::message::Message;
+use crate::models::memory_prompt::MemoryPrompt;
 use crate::routes::memory::process_memory;
 use crate::AppState;
 
@@ -68,6 +70,18 @@ async fn chat(
     );
 
     let mut request_args = req_body.into_inner();
+    
+    // NOTE: uncomment when enabling memory injection
+    // let memory_prompts = MemoryPrompt::get_all(&app_state.pool)
+    //     .await
+    //     .map_err(|e| {
+    //         error!("Error getting memory prompts: {:?}", e);
+    //         actix_web::error::ErrorInternalServerError(e.to_string())
+    //     })?;
+
+    // // Select memory prompt at random
+    // // TODO: Come up with better A/B testing strategy
+    // let memory_prompt = memory_prompts[rand::thread_rng().gen_range(0..memory_prompts.len())].clone();
 
     // NOTE disabling memory injection for now
     // // Get all user memories
@@ -358,14 +372,16 @@ async fn chat(
                             };
 
                             // Process memory
-                            info!("Processing memory");
-                            _ = process_memory(
-                                &app_state.pool,
-                                &chat.user_id,
-                                vec![last_oai_message],
-                                client,
-                            )
-                            .await;
+                            // NOTE: uncomment when enabling memory injection
+                            // info!("Processing memory");
+                            // _ = process_memory(
+                            //     &app_state.pool,
+                            //     &chat.user_id,
+                            //     vec![last_oai_message],
+                            //     client,
+                            //     memory_prompt.id,
+                            // )
+                            // .await;
                         } else {
                             error!("No messages found in request_args.messages");
                         }
@@ -377,6 +393,8 @@ async fn chat(
                             Some(model_id.clone()),
                             &content,
                             crate::models::message::Role::Assistant,
+                            None,
+                            // Some(memory_prompt.id.clone()), // NOTE: uncomment when enabling memory injection
                         )
                         .await
                         {

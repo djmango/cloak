@@ -15,6 +15,7 @@ pub struct Memory {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
+    pub memory_prompt_id: Uuid,
 }
 
 impl Default for Memory {
@@ -26,25 +27,27 @@ impl Default for Memory {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted_at: None,
+            memory_prompt_id: Uuid::new_v4(),
         }
     }
 }
 
 impl Memory {
-    pub async fn add_memory(pool: &PgPool, memory: &str, user_id: &str) -> Result<Self> {
+    pub async fn add_memory(pool: &PgPool, memory: &str, user_id: &str, prompt_id: Uuid) -> Result<Self> {
         let now_utc = Utc::now();
         let memory_id = Uuid::new_v4();
 
-        let new_memory = Memory::new(memory_id, user_id, memory, Some(now_utc));
+        let new_memory = Memory::new(memory_id, user_id, memory, prompt_id, Some(now_utc));
 
         let memory = query_as!(
             Memory,
-            "INSERT INTO memories (id, user_id, created_at, updated_at, content) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "INSERT INTO memories (id, user_id, created_at, updated_at, content, memory_prompt_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
             new_memory.id,
             new_memory.user_id,
             new_memory.created_at,
             new_memory.updated_at,
-            new_memory.content
+            new_memory.content,
+            new_memory.memory_prompt_id
         )
         .fetch_one(pool)
         .await?;
@@ -64,7 +67,7 @@ impl Memory {
         let memory = query_as!(
             Memory,
             r#"
-            SELECT id, user_id, created_at, updated_at, content, deleted_at 
+            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
             FROM memories 
             WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
             "#,
@@ -100,15 +103,16 @@ impl Memory {
         Ok(memory)
     }
 
-    pub async fn get_all_memories(pool: &PgPool, user_id: &str) -> Result<Vec<Self>> {
+    pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Uuid) -> Result<Vec<Self>> {
         let result = query_as!(
             Memory,
             r#"
-            SELECT id, user_id, created_at, updated_at, content, deleted_at 
+            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
             FROM memories 
-            WHERE user_id = $1 AND deleted_at IS NULL
+            WHERE user_id = $1 AND deleted_at IS NULL AND memory_prompt_id = $2
             "#,
-            user_id
+            user_id,
+            memory_prompt_id
         )
         .fetch_all(pool)
         .await?;
@@ -154,13 +158,14 @@ impl Memory {
 }
 
 impl Memory {
-    pub fn new(id: Uuid, user_id: &str, content: &str, created_at: Option<DateTime<Utc>>) -> Self {
+    pub fn new(id: Uuid, user_id: &str, content: &str, prompt_id: Uuid, created_at: Option<DateTime<Utc>>) -> Self {
         Memory {
             id,
             user_id: user_id.to_string(),
             created_at: created_at.unwrap_or_else(Utc::now),
             updated_at: Utc::now(),
             content: content.to_string(),
+            memory_prompt_id: prompt_id,
             ..Default::default()
         }
     }

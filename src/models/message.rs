@@ -32,6 +32,7 @@ pub struct Message {
     pub model_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub memory_prompt_id: Option<Uuid>,
 }
 
 impl Default for Message {
@@ -46,6 +47,7 @@ impl Default for Message {
             model_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            memory_prompt_id: None,
         }
     }
 }
@@ -58,6 +60,7 @@ impl Message {
         model_id: Option<String>,
         text: &str,
         role: Role,
+        memory_prompt_id: Option<Uuid>,
     ) -> Result<Self> {
         let message = Message {
             chat_id,
@@ -65,14 +68,15 @@ impl Message {
             text: text.to_string(),
             role,
             model_id,
+            memory_prompt_id,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_prompt_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
             message.id,
             message.chat_id,
@@ -81,6 +85,7 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
+            message.memory_prompt_id,
             message.created_at,
             message.updated_at
         )
@@ -145,14 +150,15 @@ impl Message {
             role,
             model_id,
             created_at: created_at.unwrap_or_else(Utc::now),
+            memory_prompt_id: None,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_prompt_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
             message.id,
             message.chat_id,
@@ -161,6 +167,7 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
+            message.memory_prompt_id,
             message.created_at,
             message.updated_at
         )
@@ -243,7 +250,7 @@ impl Message {
     // Get all messages for a given user ID
     pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str) -> Result<Vec<Message>> {
         let query_str = r#"
-            SELECT * FROM messages WHERE user_id = $1
+            SELECT * FROM messages WHERE user_id = $1 AND role='user'
         "#;
 
         let rows = query(query_str)
