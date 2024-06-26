@@ -1,6 +1,6 @@
 // routes/memory.rs
 
-use actix_web::{post, web, Responder};
+use actix_web::{post, web, HttpResponse, Responder};
 use crate::models::memory::Memory;
 use crate::models::{MemoryPrompt, Message};
 use async_openai::config::OpenAIConfig;
@@ -257,8 +257,6 @@ async fn generate_memories_from_chat_history(
 
     info!("Samples: {:?}", n_samples);
 
-    // info!("Number of user messages: {}", user_messages.len());
-
     // Iteravively run the memory prompt on each sample
     for sample in samples {
         let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
@@ -369,5 +367,5 @@ async fn generate_memories_from_chat_history(
         }
     }
 
-    Ok(web::Json("ok"))
+    Ok(HttpResponse::Ok().finish())
 }
