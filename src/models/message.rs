@@ -21,7 +21,7 @@ pub enum Role {
     User,
 }
 
-#[derive(Debug, FromRow, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, FromRow, Serialize, Deserialize, ToSchema, Clone)]
 pub struct Message {
     pub id: Uuid,
     pub chat_id: Uuid,
