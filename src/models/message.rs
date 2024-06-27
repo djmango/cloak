@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool, Type};
 use utoipa::ToSchema;
 use uuid::Uuid;
+use std::fmt;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema, PartialEq, Eq)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
@@ -19,6 +20,18 @@ pub enum Role {
     System,
     Tool,
     User,
+}
+
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Role::Assistant => write!(f, "assistant"),
+            Role::System => write!(f, "system"),
+            Role::Tool => write!(f, "tool"),
+            Role::User => write!(f, "user"),
+        }
+    }
 }
 
 #[derive(Debug, FromRow, Serialize, Deserialize, ToSchema, Clone)]
