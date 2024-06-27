@@ -1,6 +1,7 @@
 // routes/memory.rs
 
-use actix_web::{post, web, HttpResponse, Responder};
+use actix_web::{post, get, put, delete, web, HttpResponse, Responder};
+use crate::middleware::auth::{self, AuthenticatedUser};
 use crate::models::memory::Memory;
 use crate::models::message::Role;
 use crate::models::{Chat, MemoryPrompt, Message};
@@ -17,7 +18,7 @@ use tracing::{info, error};
 use uuid::Uuid;
 use crate::AppState;
 use crate::AppConfig;
-use crate::types::{GenerateMemoriesRequest, AddMemoryPromptRequest};
+use crate::types::{AddMemoryPromptRequest, CreateMemoryRequest, DeleteMemoryRequest, GenerateMemoriesRequest, GetAllMemoriesQuery, UpdateMemoryRequest};
 
 pub async fn process_memory(
     pool: &PgPool,
@@ -27,7 +28,7 @@ pub async fn process_memory(
     memory_prompt_id: Uuid,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Fetch all memories for the user
-    let user_memories = Memory::get_all_memories(pool, user_id, memory_prompt_id).await?;
+    let user_memories = Memory::get_all_memories(pool, user_id, Some(memory_prompt_id)).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
     info!("User memories: {}", formatted_memories);
@@ -199,13 +200,82 @@ async fn call_fn(
 pub async fn get_all_user_memories(
     pool: Arc<PgPool>,
     user_id: &str,
-    memory_prompt_id: Uuid,
+    memory_prompt_id: Option<Uuid>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Fetch all memories with a given memory prompt for the user
     let user_memories = Memory::get_all_memories(&pool, user_id, memory_prompt_id).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
     Ok(formatted_memories)
+}
+
+
+// create
+#[post("/create")]
+async fn create_memory(
+    app_state: web::Data<Arc<AppState>>,
+    authenticated_user: AuthenticatedUser,
+    req_body: web::Json<CreateMemoryRequest>,
+) -> Result<impl Responder, actix_web::Error> {
+    let memory = Memory::add_memory(&app_state.pool, &req_body.content, &authenticated_user.user_id, req_body.memory_prompt_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to create memory: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    Ok(HttpResponse::Ok().json(memory))
+}
+
+// read
+#[get("/get_all")]
+async fn get_all_memories(
+    app_state: web::Data<Arc<AppState>>,
+    authenticated_user: AuthenticatedUser,
+    info: web::Query<GetAllMemoriesQuery>,
+) -> Result<impl Responder, actix_web::Error> {
+    let memories = Memory::get_all_memories(&app_state.pool, &authenticated_user.user_id, info.memory_prompt_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get memories: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    Ok(HttpResponse::Ok().json(memories))
+}
+
+// update
+#[put("/update")]
+async fn update_memory(
+    app_state: web::Data<Arc<AppState>>,
+    authenticated_user: AuthenticatedUser,
+    req_body: web::Json<UpdateMemoryRequest>,
+) -> Result<impl Responder, actix_web::Error> {
+    let memory = Memory::update_memory(&app_state.pool, req_body.memory_id, &req_body.content, &authenticated_user.user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get memories: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    Ok(HttpResponse::Ok().json(memory))
+}
+
+// delete
+#[delete("/delete")]
+async fn delete_memory(
+    app_state: web::Data<Arc<AppState>>,
+    authenticated_user: AuthenticatedUser,
+    req_body: web::Json<DeleteMemoryRequest>,
+) -> Result<impl Responder, actix_web::Error> {
+    Memory::delete_memory(&app_state.pool, req_body.memory_id, &authenticated_user.user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get memories: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[post("/add_memory_prompt")]
@@ -437,7 +507,7 @@ async fn process_memory_context(
 }
 
 fn log_memory(user_id: &str, memory_context: &str, memory_prompt: &str, generated_memory: &str) -> std::io::Result<()> {
-    let log_dir = Path::new("/Users/minjunes/cloak/logs");
+    let log_dir = Path::new("/Users/minjunes/cloak/logs"); // Should make dir path a variable
     if !log_dir.exists() {
         std::fs::create_dir_all(log_dir)?;
     }
@@ -456,3 +526,4 @@ fn log_memory(user_id: &str, memory_context: &str, memory_prompt: &str, generate
 
     Ok(())
 }
+

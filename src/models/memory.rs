@@ -103,24 +103,6 @@ impl Memory {
         Ok(memory)
     }
 
-    pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Uuid) -> Result<Vec<Self>> {
-        let result = query_as!(
-            Memory,
-            r#"
-            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
-            FROM memories 
-            WHERE user_id = $1 AND deleted_at IS NULL AND memory_prompt_id = $2
-            "#,
-            user_id,
-            memory_prompt_id
-        )
-        .fetch_all(pool)
-        .await?;
-
-        debug!("All memories found: {:?}", result);
-        Ok(result)
-    }
-
     pub async fn delete_memory(pool: &PgPool, memory_id: Uuid, user_id: &str) -> Result<()> {
         query!(
             r#"
@@ -137,6 +119,41 @@ impl Memory {
 
         debug!("Memory soft-deleted with id: {:?}", memory_id);
         Ok(())
+    }
+
+    pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Option<Uuid>) -> Result<Vec<Self>> {
+        let result = match memory_prompt_id {
+            Some(memory_prompt_id) => {
+                query_as!(
+                    Memory,
+                    r#"
+                    SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
+                    FROM memories 
+                    WHERE user_id = $1 AND deleted_at IS NULL AND memory_prompt_id = $2
+                    "#,
+                    user_id,
+                    memory_prompt_id
+                )
+                .fetch_all(pool)
+                .await?
+            },
+            None => {
+                query_as!(
+                    Memory,
+                    r#"
+                    SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
+                    FROM memories 
+                    WHERE user_id = $1 AND deleted_at IS NULL
+                    "#,
+                    user_id
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        };
+        
+        debug!("All memories found: {:?}", result);
+        Ok(result)
     }
 
     pub fn format_memories(memories: Vec<Self>) -> String {
