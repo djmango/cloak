@@ -1,6 +1,8 @@
 import requests
 import uuid
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 def add_memory(base_url, prompt, id=None):
     endpoint = f"{base_url}/add_memory_prompt"
@@ -61,16 +63,28 @@ def generate_from_chat(base_url, user_id, memory_prompt_id=None, n_samples=None)
 # Example usage
 # TODO
 '''
-- run the new prompt on 10 random users + sully & i
+- run the new prompt on users responsible for top 20% traffic
 - log it all
 - read it and determine if memory useful or not
 - use chats & memories to create few-shot examples
 - iterate
+
 '''
 if __name__ == '__main__':
     base_url = "http://localhost:8000/memory"
-                # sully                             # minjune                       # some russian guy
-    user_ids = ["user_01J0KQQ0XVK8K2FWV6AGTNJ6EG", "user_01HY5EW9Z5XVE34GZXKH4NC2Y1", "user_01HZEP4TFR49AG913DPQJ6MASW",] 
+                
+    user_ids = ["user_01J0KQQ0XVK8K2FWV6AGTNJ6EG", # sully                                                    
+                "user_01HY5EW9Z5XVE34GZXKH4NC2Y1", # minjune
+                "user_01HZEP4TFR49AG913DPQJ6MASW",# some russian guy
+                # https://us.posthog.com/project/59909/insights/K3EgabUz
+                "user_01HZEP4TFR49AG913DPQJ6MASW", #1326 msgs https://us.posthog.com/project/59909/person/larinvasyl%40pm.me
+                "user_01HVR20FDCZH3QX8WPYHR45MX7", #479 msgs https://us.posthog.com/project/59909/person/siuchun038%40gmail.com
+                "user_01J13W84Z1TDYH5BEW4288KZQX", #385 msgs https://us.posthog.com/project/59909/person/4A6AAC56-382C-4BA1-8D99-19ECC76553BE
+                "user_01J0JKNKX3FPMZ9JJ9NVG8D12A", # 291 msgs https://us.posthog.com/project/59909/person/alex.zorychta%40gmail.com
+                "user_01J15P3MRBT039MTC0KWGD114R", # 240 msgs https://us.posthog.com/project/59909/person/ai%40hmphu.com
+                "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
+                ] 
+
     memory_prompt_id = "e9ce3939-3143-4552-8c71-e7e741b65493"  # Generate a random UUID
     n_samples = 100
 
@@ -80,5 +94,12 @@ if __name__ == '__main__':
             prompt = f.read()
             #add_memory(base_url, prompt)
 
-    for user_id in user_ids:
-        generate_from_chat(base_url, user_id, memory_prompt_id, n_samples)
+     # Use ThreadPoolExecutor to run generate_from_chat concurrently
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(generate_from_chat, base_url, user_id, memory_prompt_id, n_samples) for user_id in user_ids]
+        
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as exc:
+                print(f'Generated an exception: {exc}')
