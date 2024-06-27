@@ -1,3 +1,4 @@
+-- Add migration script here
 -- Create table to store memory prompts and track performance
 CREATE TABLE memory_prompts (
     id UUID PRIMARY KEY,

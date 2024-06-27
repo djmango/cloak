@@ -102,7 +102,8 @@ async fn main(
                 )
                 .service(
                     web::scope("/memory")
-                        .service(routes::memory::generate_memories_from_chat_history),
+                        .service(routes::memory::generate_memories_from_chat_history)
+                        .service(routes::memory::add_memory_prompt)
                 )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
