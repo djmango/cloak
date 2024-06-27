@@ -280,4 +280,26 @@ impl Message {
 
         Ok(messages)
     }
+
+    pub async fn get_next_msg(pool: &PgPool, chat_id: Uuid, last_msg: &Message) -> Result<Option<Message>> {
+        let query_str = r#"
+            SELECT * FROM messages 
+            WHERE chat_id = $1 
+              AND created_at > $2 
+              AND role = 'user'
+            ORDER BY created_at ASC 
+            LIMIT 1
+        "#;
+
+        let row = query(query_str)
+            .bind(chat_id)
+            .bind(last_msg.created_at)
+            .fetch_optional(pool)
+            .await?;
+
+        match row {
+            Some(row) => Ok(Some(Message::from_row(&row)?)),
+            None => Ok(None),
+        }
+    }
 }
