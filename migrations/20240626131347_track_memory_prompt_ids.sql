@@ -16,10 +16,6 @@ ON DELETE CASCADE;
 
 -- Alter messages table to track memories used to create response
 ALTER TABLE messages
-ADD COLUMN memory_prompt_id UUID,
-ADD CONSTRAINT fk_memory_prompt_id
-FOREIGN KEY (memory_prompt_id)
-REFERENCES memory_prompts(id)
-ON DELETE CASCADE;
+ADD COLUMN memory_ids UUID[];
 
 

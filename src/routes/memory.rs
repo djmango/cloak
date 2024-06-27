@@ -2,7 +2,8 @@
 
 use actix_web::{post, web, HttpResponse, Responder};
 use crate::models::memory::Memory;
-use crate::models::{MemoryPrompt, Message};
+use crate::models::message::Role;
+use crate::models::{Chat, MemoryPrompt, Message};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs
@@ -225,45 +226,42 @@ async fn generate_memories_from_chat_history(
         })?;
 
     let user_id = req_body.user_id.clone();
-    let user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id)
+
+    let user_chats = Chat::get_chats_for_user(&app_state.pool, &user_id)
         .await
         .map_err(|e| {
-            error!("Failed to get user messages: {:?}", e);
+            error!("Failed to get user chats: {:?}", e);
             actix_web::error::ErrorInternalServerError(e)
         })?;
-
-    // We sample multiple segments of the user's messages to generate distinct memories and avoid over-filling the context
-    let sample_size = match req_body.sample_size.clone() {
-        Some(s) => s,
-        None => std::cmp::min(5, (user_messages.len() as f32 * 0.1).ceil() as u8),
-    };
-    let n_samples = match req_body.n_samples.clone() {
-        Some(n) => n,
-        None => ((user_messages.len() as f32 * 0.1) / sample_size as f32).ceil() as u8, // 10% of the user's messages
-    };
     
+    let n_samples = match req_body.n_samples.clone() {
+        Some(n) => std::cmp::min(user_chats.len() as u8, n),
+        None => std::cmp::min(user_chats.len() as u8, 5)
+    };
+
     let mut rng = rand::thread_rng();
-    let mut samples = Vec::new();
+    let chats: Vec<Chat> = user_chats
+        .choose_multiple(&mut rng, n_samples as usize)  
+        .cloned() 
+        .collect();
+    
+    let mut samples: Vec<Vec<Message>> = Vec::new();
 
-    // Choose n_samples random samples from the user's messages
-    let mut used_indices = Vec::new();
+    for chat in chats {
+        let all_messages: Vec<Message> = Message::get_messages_by_chat_id(&app_state.pool, chat.id)
+            .await
+            .map_err(|e| {
+                error!("Failed to get messages for chat: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+        
+        let user_messages: Vec<Message> = all_messages
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .cloned()
+            .collect();
 
-    for _ in 0..n_samples {
-        let mut sample: Vec<Message> = Vec::new();
-        let mut attempts = 0;
-
-        while sample.is_empty() && attempts < 100 {
-            let index = rng.gen_range(0..(user_messages.len() - sample_size as usize));
-            if used_indices.iter().all(|&i| (i as isize - index as isize).abs() >= sample_size as isize) {
-                sample = user_messages[index..index + sample_size as usize].to_vec();
-                used_indices.push(index);
-            }
-            attempts += 1;
-        }
-
-        if !sample.is_empty() {
-            samples.push(sample);
-        }
+        samples.push(user_messages.into_iter().take(5).collect());
     }
 
     info!("Samples: {:?}", n_samples);

@@ -11,7 +11,7 @@ use sqlx::{query, FromRow, PgPool, Type};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema, PartialEq, Eq)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
 #[serde(rename_all = "lowercase")] // JSON value name
 pub enum Role {
@@ -32,7 +32,7 @@ pub struct Message {
     pub model_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub memory_prompt_id: Option<Uuid>,
+    pub memory_ids: Option<Vec<Uuid>>,
     pub upvoted: Option<bool>,
 }
 
@@ -48,7 +48,7 @@ impl Default for Message {
             model_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            memory_prompt_id: None,
+            memory_ids: None,
             upvoted: None,
         }
     }
@@ -62,7 +62,7 @@ impl Message {
         model_id: Option<String>,
         text: &str,
         role: Role,
-        memory_prompt_id: Option<Uuid>,
+        memory_ids: Option<Vec<Uuid>>,
     ) -> Result<Self> {
         let message = Message {
             chat_id,
@@ -70,14 +70,14 @@ impl Message {
             text: text.to_string(),
             role,
             model_id,
-            memory_prompt_id,
+            memory_ids,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_prompt_id, created_at, updated_at)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_ids, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
             message.id,
@@ -87,7 +87,7 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
-            message.memory_prompt_id,
+            message.memory_ids.as_deref(),
             message.created_at,
             message.updated_at
         )
@@ -152,14 +152,14 @@ impl Message {
             role,
             model_id,
             created_at: created_at.unwrap_or_else(Utc::now),
-            memory_prompt_id: None,
+            memory_ids: None,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_prompt_id, created_at, updated_at)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_ids, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
             message.id,
@@ -169,7 +169,7 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
-            message.memory_prompt_id,
+            message.memory_ids.as_deref(),
             message.created_at,
             message.updated_at
         )
@@ -252,11 +252,27 @@ impl Message {
     // Get all messages for a given user ID
     pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str) -> Result<Vec<Message>> {
         let query_str = r#"
-            SELECT * FROM messages WHERE user_id = $1 AND role='user'
+            SELECT * FROM messages WHERE user_id = $1'
         "#;
 
         let rows = query(query_str)
             .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+        let messages = rows.into_iter().map(|row| Message::from_row(&row).unwrap()).collect::<Vec<Message>>();
+
+        Ok(messages)
+    }
+
+    // Get all messages for a given chat ID
+    pub async fn get_messages_by_chat_id(pool: &PgPool, chat_id: Uuid) -> Result<Vec<Message>> {
+        let query_str = r#"
+            SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC
+        "#;
+
+        let rows = query(query_str)
+            .bind(chat_id)
             .fetch_all(pool)
             .await?;
 
