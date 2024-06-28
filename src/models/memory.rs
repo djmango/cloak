@@ -155,7 +155,7 @@ impl Memory {
         debug!("All memories found: {:?}", result);
         Ok(result)
     }
-
+    #[allow(dead_code)]
     pub fn format_memories(memories: Vec<Self>) -> String {
         let formatted_memories: Vec<String> = memories
             .iter()

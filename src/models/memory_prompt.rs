@@ -61,13 +61,15 @@ impl MemoryPrompt {
         Ok(prompt)
     }
 
+    #[allow(dead_code)]
     pub async fn upvote(pool: &PgPool, prompt_id: Uuid) -> Result<()> {
         query!("UPDATE memory_prompts SET upvotes = upvotes + 1 WHERE id = $1", prompt_id)
             .execute(pool)
             .await?;
         Ok(())
     }
-
+    
+    #[allow(dead_code)]
     pub async fn downvote(pool: &PgPool, prompt_id: Uuid) -> Result<()> {
         query!("UPDATE memory_prompts SET upvotes = upvotes - 1 WHERE id = $1", prompt_id)
             .execute(pool)
@@ -75,6 +77,7 @@ impl MemoryPrompt {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn get_all(pool: &PgPool) -> Result<Vec<Self>> {
         let records = query_as!(
             MemoryPrompt,

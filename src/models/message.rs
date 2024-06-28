@@ -22,7 +22,6 @@ pub enum Role {
     User,
 }
 
-
 impl fmt::Display for Role {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -263,6 +262,7 @@ impl Message {
     }
 
     // Get all messages for a given user ID
+    #[allow(dead_code)]
     pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str) -> Result<Vec<Message>> {
         let query_str = r#"
             SELECT * FROM messages WHERE user_id = $1'

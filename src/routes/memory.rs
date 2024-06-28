@@ -1,9 +1,8 @@
 // routes/memory.rs
 
 use actix_web::{post, get, put, delete, web, HttpResponse, Responder};
-use crate::middleware::auth::{self, AuthenticatedUser};
+use crate::middleware::auth::{AuthenticatedUser};
 use crate::models::memory::Memory;
-use crate::models::message::Role;
 use crate::models::{Chat, MemoryPrompt, Message};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
@@ -20,6 +19,11 @@ use crate::AppState;
 use crate::AppConfig;
 use crate::types::{AddMemoryPromptRequest, CreateMemoryRequest, DeleteMemoryRequest, GenerateMemoriesRequest, GetAllMemoriesQuery, UpdateMemoryRequest};
 
+use std::fs::{OpenOptions};
+use std::io::Write;
+use std::path::Path;
+
+#[allow(dead_code)]
 pub async fn process_memory(
     pool: &PgPool,
     user_id: &str,
@@ -197,6 +201,7 @@ async fn call_fn(
     }
 }
 
+#[allow(dead_code)]
 pub async fn get_all_user_memories(
     pool: Arc<PgPool>,
     user_id: &str,
@@ -303,15 +308,6 @@ async fn generate_memories_from_chat_history(
     _app_config: web::Data<Arc<AppConfig>>,
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let client = app_state.keywords_client.clone();
-    
-    let memory_prompt_id = req_body.memory_prompt_id.clone();
-    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to get memory prompt: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
 
     let user_id = req_body.user_id.clone();
 
@@ -386,8 +382,8 @@ async fn generate_memories_from_chat_history(
 
     let max_ctxt_chars = 100_000;
     let mut memory_ctxt = String::new();
-
-    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, req_body.memory_prompt_id)
+    let memory_prompt_id = req_body.memory_prompt_id.clone();
+    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
         .await
         .map_err(|e| {
             error!("Failed to get memory prompt: {:?}", e);
@@ -395,8 +391,8 @@ async fn generate_memories_from_chat_history(
         })?;
 
     memory_ctxt.push_str(&format!("{}\n", memory_prompt.prompt));
-    'chat_loop: for (chat_id, messages) in samples_dict.iter() {
-        memory_ctxt.push_str("<begin chat with user>");
+    'chat_loop: for (_chat_id, messages) in samples_dict.iter() {
+        memory_ctxt.push_str("<begin chat>");
         for msg in messages {
             let message_content = format!(
                 "<begin message from {}>\n{}</end message>\n",
@@ -416,7 +412,7 @@ async fn generate_memories_from_chat_history(
 
                 // Reset the context for the next batch
                 memory_ctxt.clear();
-                memory_ctxt.push_str(&format!("{}\n", memory_prompt.prompt));
+                memory_ctxt.push_str(&format!("{}\n<begin chat with user>\n", memory_prompt.prompt));
                 continue 'chat_loop;
             }
         }
@@ -432,10 +428,6 @@ async fn generate_memories_from_chat_history(
 
     Ok(HttpResponse::Ok().finish())
 }
-
-use std::fs::{OpenOptions, File};
-use std::io::Write;
-use std::path::Path;
 
 async fn process_memory_context(
     app_state: &web::Data<Arc<AppState>>,

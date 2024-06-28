@@ -16,17 +16,14 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use utoipa::OpenApi;
-use rand::Rng;
 
 // use crate::routes::memory::get_all_user_memories;
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
 use crate::models::message::Message;
-use crate::models::memory_prompt::MemoryPrompt;
-use crate::routes::memory::process_memory;
 use crate::AppState;
 
 #[derive(OpenApi)]

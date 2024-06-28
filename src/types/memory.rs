@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -37,6 +37,5 @@ pub struct GenerateMemoriesRequest {
 
 #[derive(Deserialize)]
 pub struct AddMemoryPromptRequest {
-    pub prompt: String,
-    pub id: Option<Uuid>,
+    pub prompt: String
 }
