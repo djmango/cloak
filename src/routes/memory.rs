@@ -464,7 +464,16 @@ async fn process_memory_context(
         .message.content.clone()
         .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))?;
 
-    // println!("Generated memory before saving: {}", generated_memory);
+    println!("Generated memory before saving: {}", generated_memory);
+
+    // Log the memory to a file
+    if let Some(log_dir) = log_dir.clone() {
+        log_memory(user_id, memory_ctxt, &memory_prompt_id.to_string(), &generated_memory, &log_dir)
+            .map_err(|e| {
+            error!("Failed to log memory: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+    }
 
     let parse_messages: Vec<ChatCompletionRequestMessage> = vec![
         ChatCompletionRequestSystemMessageArgs::default()
@@ -565,24 +574,14 @@ async fn process_memory_context(
                 })?
                 .clone();
             
-            info!("Memories: {:?}", memories);
-
-            // Log the memory to a file
-            if let Some(log_dir) = log_dir.clone() {
-                let memories_str = memories.iter().map(|m| m.content.clone()).collect::<Vec<String>>();
-                log_memory(user_id, memory_ctxt, &memory_prompt_id.to_string(), memories_str, &log_dir)
-                    .map_err(|e| {
-                    error!("Failed to log memory: {:?}", e);
-                        actix_web::error::ErrorInternalServerError(e)
-                    })?;
-            }
+            // info!("Memories: {:?}", memories);
         }
     }
 
     Ok(())
 }
 
-fn log_memory(user_id: &str, memory_context: &str, memory_prompt_id: &str, memories: Vec<String>, dir_path: &str) -> std::io::Result<()> {
+fn log_memory(user_id: &str, memory_context: &str, memory_prompt_id: &str, generated_memories: &str, dir_path: &str) -> std::io::Result<()> {
     let log_dir = Path::new(dir_path);
     if !log_dir.exists() {
         std::fs::create_dir_all(log_dir)?;
@@ -597,11 +596,7 @@ fn log_memory(user_id: &str, memory_context: &str, memory_prompt_id: &str, memor
     writeln!(file, "user_id=\"{}\"", user_id)?;
     writeln!(file, "memory_context=\"{}\"", memory_context)?;
     writeln!(file, "memory_prompt_id=\"{}\"", memory_prompt_id)?;
-    writeln!(file, "memories=\"")?;
-    for memory in memories {
-        writeln!(file, "- {}\"", memory)?;
-    }
-    writeln!(file, "\"")?;
+    writeln!(file, "generated_memories=\"{}\"", generated_memories)?;
     writeln!(file, "\n")?;
 
     Ok(())
