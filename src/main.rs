@@ -87,10 +87,12 @@ async fn main(
                         .service(routes::chat::autorename_chat),
                 )
                 .service(
+                    web::scope("/messages")
+                        .service(routes::messages::upvote_message)
+                        .service(routes::messages::downvote_message),
+                )
+                .service(
                     web::scope("/oai")
-                        .service(routes::oai::chat)
-                        .service(routes::oai::upvote_message)
-                        .service(routes::oai::downvote_message)
                         .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
                 )
                 .service(

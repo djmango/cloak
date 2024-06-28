@@ -6,3 +6,4 @@ pub mod memory;
 pub mod pay;
 pub mod sync;
 pub mod webhook;
+pub mod messages;
