@@ -4,7 +4,7 @@ use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionFunctionCall, ChatCompletionRequestMessage,
     ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartText,
-    ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessageContent,
+    ChatCompletionRequestUserMessageContent,
     ChatCompletionResponseFormat, ChatCompletionStreamOptions, ChatCompletionTool,
     ChatCompletionToolChoiceOption, CreateChatCompletionRequest, InvisibilityMetadata,
 };

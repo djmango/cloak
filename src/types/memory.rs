@@ -32,7 +32,7 @@ pub struct DeleteMemoryRequest {
 pub struct GenerateMemoriesRequest {
     pub user_id: String,
     pub memory_prompt_id: Uuid,
-    pub n_samples: Option<u8>,
+    pub n_samples: Option<u32>,
 }
 
 #[derive(Deserialize)]
