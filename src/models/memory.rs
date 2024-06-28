@@ -3,7 +3,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{query, query_as, FromRow, PgPool};
+use sqlx::{query_as, FromRow, PgPool};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -103,22 +103,24 @@ impl Memory {
         Ok(memory)
     }
 
-    pub async fn delete_memory(pool: &PgPool, memory_id: Uuid, user_id: &str) -> Result<()> {
-        query!(
+    pub async fn delete_memory(pool: &PgPool, memory_id: Uuid, user_id: &str) -> Result<Memory> {
+        let memory = query_as!(
+            Memory,
             r#"
             UPDATE memories 
             SET deleted_at = $1
             WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL
+            RETURNING *
             "#,
             Utc::now(),
             memory_id,
             user_id
         )
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
 
         debug!("Memory soft-deleted with id: {:?}", memory_id);
-        Ok(())
+        Ok(memory)
     }
 
     pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Option<Uuid>) -> Result<Vec<Self>> {
