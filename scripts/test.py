@@ -84,8 +84,10 @@ if __name__ == '__main__':
                 "user_01J15P3MRBT039MTC0KWGD114R", # 240 msgs https://us.posthog.com/project/59909/person/ai%40hmphu.com
                 "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
                 ] 
+    
+    user_ids = [user_ids[0]]
 
-    memory_prompt_id = "e9ce3939-3143-4552-8c71-e7e741b65493"  # Generate a random UUID
+    memory_prompt_id = "56b2bc1c-390c-4249-a553-b37c1d5a37f0"  # Generate a random UUID
     n_samples = 100
 
     for p in os.listdir('prompts'):

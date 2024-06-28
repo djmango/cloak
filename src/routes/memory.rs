@@ -394,9 +394,9 @@ async fn generate_memories_from_chat_history(
             actix_web::error::ErrorInternalServerError(e)
         })?;
 
+    memory_ctxt.push_str(&format!("{}\n", memory_prompt.prompt));
     'chat_loop: for (chat_id, messages) in samples_dict.iter() {
-        memory_ctxt.push_str(&format!("{}\n<begin chat with user>\n", memory_prompt.prompt));
-
+        memory_ctxt.push_str("<begin chat with user>");
         for msg in messages {
             let message_content = format!(
                 "<begin message from {}>\n{}</end message>\n",
@@ -416,8 +416,7 @@ async fn generate_memories_from_chat_history(
 
                 // Reset the context for the next batch
                 memory_ctxt.clear();
-                memory_ctxt.push_str(&format!("{}\n<begin chat with user>\n", memory_prompt.prompt));
-
+                memory_ctxt.push_str(&format!("{}\n", memory_prompt.prompt));
                 continue 'chat_loop;
             }
         }
