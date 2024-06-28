@@ -369,7 +369,7 @@ async fn generate_memories_from_chat_history(
     // Add this after populating samples_dict
     // debug
     for (chat_id, messages) in &samples_dict {
-        println!("Chat ID: {}, Number of messages: {}", chat_id, messages.len());
+        info!("Chat ID: {}, Number of messages: {}", chat_id, messages.len());
     }
 
     let max_ctxt_chars = 200_000;
@@ -419,9 +419,6 @@ async fn process_memory_context(
     memory_prompt_id: Uuid,
     log_dir: Option<String>,
 ) -> Result<(), actix_web::Error> {
-    // Print the memory_ctxt
-    println!("Processing memory context: {}", memory_ctxt);
-
     let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
         .await
         .map_err(|e| {

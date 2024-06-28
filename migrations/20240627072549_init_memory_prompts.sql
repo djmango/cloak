@@ -3,6 +3,7 @@
 CREATE TABLE memory_prompts (
     id UUID PRIMARY KEY,
     prompt TEXT NOT NULL,
+    example TEXT,
     upvotes INTEGER DEFAULT 0 NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
@@ -17,6 +18,12 @@ ON DELETE CASCADE;
 
 -- Alter messages table to track memories used to create response
 ALTER TABLE messages
-ADD COLUMN memory_ids UUID[];
+ADD COLUMN memory_ids UUID[],
+ADD COLUMN upvoted BOOLEAN,
+ADD COLUMN memory_prompt_id UUID,
+ADD CONSTRAINT fk_memory_prompt_id
+FOREIGN KEY (memory_prompt_id)
+REFERENCES memory_prompts(id)
+ON DELETE CASCADE;
 
 

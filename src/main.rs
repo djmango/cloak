@@ -89,6 +89,8 @@ async fn main(
                 .service(
                     web::scope("/oai")
                         .service(routes::oai::chat)
+                        .service(routes::oai::upvote_message)
+                        .service(routes::oai::downvote_message)
                         .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
                 )
                 .service(
