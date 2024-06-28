@@ -85,9 +85,10 @@ if __name__ == '__main__':
                 "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
                 ] 
 
-    user_ids = [user_ids[1]]
+    user_ids = [user_ids[0]]
 #'56b2bc1c-390c-4249-a553-b37c1d5a37f0'
-    memory_prompt_id = "079890a2-cedc-4f52-af4b-e1e94f59d043"  # Generate a random UUID
+#"079890a2-cedc-4f52-af4b-e1e94f59d043"  # Generate a random U
+    memory_prompt_id = "e175d7ff-043f-4356-9b50-68529051672b"
     n_samples = 1000
 
     for p in os.listdir('prompts'):
@@ -95,6 +96,7 @@ if __name__ == '__main__':
         with open(pf, 'r') as f:
             prompt = f.read()
             #add_memory(base_url, prompt)
+        
      # Use ThreadPoolExecutor to run generate_from_chat concurrently
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(generate_from_chat, base_url, user_id, memory_prompt_id, n_samples) for user_id in user_ids]

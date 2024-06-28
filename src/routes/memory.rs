@@ -371,7 +371,7 @@ async fn generate_memories_from_chat_history(
         println!("Chat ID: {}, Number of messages: {}", chat_id, messages.len());
     }
 
-    let max_ctxt_chars = 100_000;
+    let max_ctxt_chars = 200_000;
     let mut memory_ctxt = String::new();
     let memory_prompt_id = req_body.memory_prompt_id.clone();
     let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
