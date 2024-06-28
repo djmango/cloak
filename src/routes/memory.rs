@@ -6,7 +6,7 @@ use crate::models::memory::Memory;
 use crate::models::{Chat, MemoryPrompt, Message};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
-    ChatCompletionNamedToolChoice, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionName, FunctionObjectArgs
+    ChatCompletionNamedToolChoice, ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionName, FunctionObjectArgs
 };
 use std::collections::{HashMap, HashSet};
 use async_openai::Client;
@@ -279,7 +279,8 @@ async fn add_memory_prompt(
 ) -> Result<impl Responder, actix_web::Error> {
     let memory_prompt = MemoryPrompt::new(
         &app_state.pool,
-        &req_body.prompt
+        &req_body.prompt,
+        req_body.example.clone(),
     )
     .await
     .map_err(|e| {
@@ -373,20 +374,12 @@ async fn generate_memories_from_chat_history(
 
     let max_ctxt_chars = 200_000;
     let mut memory_ctxt = String::new();
-    let memory_prompt_id = req_body.memory_prompt_id.clone();
-    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to get memory prompt: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
-
-    memory_ctxt.push_str(&format!("{}\n", memory_prompt.prompt));
+    
     'chat_loop: for (_chat_id, messages) in samples_dict.iter() {
-        memory_ctxt.push_str("<begin chat>");
+        memory_ctxt.push_str("<begin chat>\n");
         for msg in messages {
             let message_content = format!(
-                "<begin message from {}>\n{}</end message>\n",
+                "<begin message from {}>\n{}\n</end message>\n",
                 msg.role, msg.text
             );
 
@@ -403,7 +396,6 @@ async fn generate_memories_from_chat_history(
 
                 // Reset the context for the next batch
                 memory_ctxt.clear();
-                memory_ctxt.push_str(&format!("{}\n<begin chat with user>\n", memory_prompt.prompt));
                 continue 'chat_loop;
             }
         }
@@ -430,8 +422,24 @@ async fn process_memory_context(
     // Print the memory_ctxt
     println!("Processing memory context: {}", memory_ctxt);
 
-    let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestUserMessageArgs::default()
+    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get memory prompt: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    
+    let mut ai_messages: Vec<ChatCompletionRequestMessage> = vec![
+        ChatCompletionRequestSystemMessageArgs::default()
+            .content(memory_prompt.prompt.clone())
+            .build()
+            .map_err(|e| {
+                error!("Failed to build user message: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?
+            .into(),
+        ChatCompletionRequestSystemMessageArgs::default()
             .content(memory_ctxt.to_string())
             .build()
             .map_err(|e| {
@@ -440,6 +448,17 @@ async fn process_memory_context(
             })?
             .into(),
     ];
+
+    if let Some(example) = &memory_prompt.example {
+        ai_messages.insert(1, ChatCompletionRequestAssistantMessageArgs::default()
+            .content(example.to_string())
+            .build()
+            .map_err(|e| {
+                error!("Failed to build user message: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?
+            .into());
+    }
 
     let request = CreateChatCompletionRequestArgs::default()
         .model("claude-3-5-sonnet-20240620")
@@ -468,9 +487,9 @@ async fn process_memory_context(
 
     // Log the memory to a file
     if let Some(log_dir) = log_dir.clone() {
-        log_memory(user_id, memory_ctxt, &memory_prompt_id.to_string(), &generated_memory, &log_dir)
+        log_memory(user_id, memory_ctxt, &memory_prompt_id.to_string(), &generated_memory, &log_dir, &memory_prompt.prompt.clone(), memory_prompt.example.as_deref())
             .map_err(|e| {
-            error!("Failed to log memory: {:?}", e);
+                error!("Failed to log memory: {:?}", e);    
                 actix_web::error::ErrorInternalServerError(e)
             })?;
     }
@@ -566,7 +585,7 @@ async fn process_memory_context(
             let name = tool_call.function.name.clone();
             let args = tool_call.function.arguments.clone();
 
-            let memories = call_fn(&app_state.pool, &name, &args, user_id, memory_prompt_id)
+            let _memories = call_fn(&app_state.pool, &name, &args, user_id, memory_prompt_id)
                 .await
                 .map_err(|e| {
                     error!("Failed to parse memories: {:?}", e);
@@ -581,7 +600,15 @@ async fn process_memory_context(
     Ok(())
 }
 
-fn log_memory(user_id: &str, memory_context: &str, memory_prompt_id: &str, generated_memories: &str, dir_path: &str) -> std::io::Result<()> {
+fn log_memory(
+    user_id: &str, 
+    memory_context: &str, 
+    memory_prompt_id: &str, 
+    generated_memories: &str, 
+    dir_path: &str,
+    prompt: &str,
+    example: Option<&str>,
+) -> std::io::Result<()> {
     let log_dir = Path::new(dir_path);
     if !log_dir.exists() {
         std::fs::create_dir_all(log_dir)?;
@@ -594,6 +621,10 @@ fn log_memory(user_id: &str, memory_context: &str, memory_prompt_id: &str, gener
         .open(log_file)?;
 
     writeln!(file, "user_id=\"{}\"", user_id)?;
+    writeln!(file, "memory_prompt=\"{}\"", prompt)?;
+    if let Some(example) = example {
+        writeln!(file, "example=\"{}\"", example)?;
+    }
     writeln!(file, "memory_context=\"{}\"", memory_context)?;
     writeln!(file, "memory_prompt_id=\"{}\"", memory_prompt_id)?;
     writeln!(file, "generated_memories=\"{}\"", generated_memories)?;

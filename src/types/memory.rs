@@ -38,5 +38,6 @@ pub struct GenerateMemoriesRequest {
 
 #[derive(Deserialize)]
 pub struct AddMemoryPromptRequest {
-    pub prompt: String
+    pub prompt: String,
+    pub example: Option<String>,
 }

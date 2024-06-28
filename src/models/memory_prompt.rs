@@ -10,6 +10,7 @@ pub struct MemoryPrompt {
     pub prompt: String,
     pub upvotes: i32,
     pub created_at: DateTime<Utc>,
+    pub example: Option<String>,
 }
 
 impl Default for MemoryPrompt {
@@ -19,29 +20,32 @@ impl Default for MemoryPrompt {
             prompt: String::new(),
             upvotes: 0,
             created_at: Utc::now(),
+            example: None,
         }
     }
 }
 
 impl MemoryPrompt {
-    pub async fn new(pool: &PgPool, prompt: &str) -> Result<Self> {
+    pub async fn new(pool: &PgPool, prompt: &str, example: Option<String>) -> Result<Self> {
         let prompt = MemoryPrompt {
             id: Uuid::new_v4(),
             prompt: prompt.to_string(),
             upvotes: 0,
             created_at: Utc::now(),
+            example: example,
         };
 
         // Save prompt to database
         query!(
             r#"
-            INSERT INTO memory_prompts (id, prompt, upvotes, created_at) 
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO memory_prompts (id, prompt, upvotes, created_at, example) 
+            VALUES ($1, $2, $3, $4, $5)
             "#,
             prompt.id,
             prompt.prompt,
             prompt.upvotes,
-            prompt.created_at
+            prompt.created_at,
+            prompt.example
         )
         .execute(pool)
         .await?;
