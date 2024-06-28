@@ -336,15 +336,18 @@ async fn generate_memories_from_chat_history(
                 error!("Failed to get messages for chat: {:?}", e);
                 actix_web::error::ErrorInternalServerError(e)
             })?;
+        
+        // if chat_messages count <= 2, continue (skip it)
+        if chat_messages.len() > 2 {
+            let selected_messages: Vec<Message> = chat_messages
+                .into_iter()
+                .take(10)
+                .collect();
 
-        let selected_messages: Vec<Message> = chat_messages
-            .into_iter()
-            .take(10)
-            .collect();
-
-        let added_count = selected_messages.len();
-        samples_dict.insert(chat_id, selected_messages);
-        total_samples += added_count;
+            let added_count = selected_messages.len();
+            samples_dict.insert(chat_id, selected_messages);
+            total_samples += added_count;
+        }
     }
 
     let mut exhausted_chats: HashSet<Uuid> = HashSet::new();
