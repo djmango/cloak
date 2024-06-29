@@ -93,6 +93,7 @@ async fn main(
                 )
                 .service(
                     web::scope("/oai")
+                        .service(routes::oai::chat)
                         .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
                 )
                 .service(
