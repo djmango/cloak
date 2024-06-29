@@ -301,42 +301,42 @@ impl Message {
     }
 
     // Get all messages for a given chat ID
-    pub async fn get_messages_by_chat_id(pool: &PgPool, chat_id: Uuid) -> Result<Vec<Message>> {
-        let query_str = r#"
-            SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC
-        "#;
+    // pub async fn get_messages_by_chat_id(pool: &PgPool, chat_id: Uuid) -> Result<Vec<Message>> {
+    //     let query_str = r#"
+    //         SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC
+    //     "#;
 
-        let rows = query(query_str)
-            .bind(chat_id)
-            .fetch_all(pool)
-            .await?;
+    //     let rows = query(query_str)
+    //         .bind(chat_id)
+    //         .fetch_all(pool)
+    //         .await?;
 
-        let messages = rows.into_iter().map(|row| Message::from_row(&row).unwrap()).collect::<Vec<Message>>();
+    //     let messages = rows.into_iter().map(|row| Message::from_row(&row).unwrap()).collect::<Vec<Message>>();
 
-        Ok(messages)
-    }
+    //     Ok(messages)
+    // }
 
-    pub async fn get_next_msg(pool: &PgPool, chat_id: Uuid, last_msg: &Message) -> Result<Option<Message>> {
-        let query_str = r#"
-            SELECT * FROM messages 
-            WHERE chat_id = $1 
-              AND created_at > $2 
-              AND role = 'user'
-            ORDER BY created_at ASC 
-            LIMIT 1
-        "#;
+    // pub async fn get_next_msg(pool: &PgPool, chat_id: Uuid, last_msg: &Message) -> Result<Option<Message>> {
+    //     let query_str = r#"
+    //         SELECT * FROM messages 
+    //         WHERE chat_id = $1 
+    //           AND created_at > $2 
+    //           AND role = 'user'
+    //         ORDER BY created_at ASC 
+    //         LIMIT 1
+    //     "#;
 
-        let row = query(query_str)
-            .bind(chat_id)
-            .bind(last_msg.created_at)
-            .fetch_optional(pool)
-            .await?;
+    //     let row = query(query_str)
+    //         .bind(chat_id)
+    //         .bind(last_msg.created_at)
+    //         .fetch_optional(pool)
+    //         .await?;
 
-        match row {
-            Some(row) => Ok(Some(Message::from_row(&row)?)),
-            None => Ok(None),
-        }
-    }
+    //     match row {
+    //         Some(row) => Ok(Some(Message::from_row(&row)?)),
+    //         None => Ok(None),
+    //     }
+    // }
 
     pub async fn upvote (pool: &PgPool, message_id: Uuid, user_id: &str) ->  Result<()> {
         let query_str = r#"

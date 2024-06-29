@@ -3,12 +3,11 @@
 use actix_web::{post, get, put, delete, web, HttpResponse, Responder};
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::memory::Memory;
-use crate::models::{Chat, MemoryPrompt, Message};
+use crate::models::{MemoryPrompt, Message};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
-    ChatCompletionNamedToolChoice, ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionName, FunctionObjectArgs
+    ChatCompletionNamedToolChoice, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionName, FunctionObjectArgs
 };
-use std::collections::{HashMap, HashSet};
 use async_openai::Client;
 use serde_json::json;
 use sqlx::PgPool;
@@ -443,8 +442,7 @@ async fn process_memory_context(
             .content(
                 generated_memories
                 .iter()
-                .enumerate()
-                .map(|(i, m)| {
+                .map(|m| {
                     let collection = m
                         .split("\"\"\"")
                         .nth(1)
