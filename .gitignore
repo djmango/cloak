@@ -4,3 +4,4 @@
 /target
 Secrets.toml
 logs/
+scripts/prompts/

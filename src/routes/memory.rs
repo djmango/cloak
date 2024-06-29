@@ -300,114 +300,64 @@ async fn generate_memories_from_chat_history(
 
     let user_id = req_body.user_id.clone();
 
-    let user_chats = Chat::get_chats_for_user(&app_state.pool, &user_id)
+    let mut user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id)
         .await
         .map_err(|e| {
-            error!("Failed to get user chats: {:?}", e);
+            error!("Failed to get user messages: {:?}", e);
             actix_web::error::ErrorInternalServerError(e)
         })?;
-    
-    let n_samples = match req_body.n_samples {
-        Some(n) => std::cmp::min(user_chats.len(), n as usize),
-        None => user_chats.len()
+ 
+    let max_samples = match req_body.max_samples {
+        Some(n) => n,
+        None => user_messages.len() as u32
     };
-        
-    let mut samples_dict: HashMap<Uuid, Vec<Message>> = HashMap::new();
-    let mut total_samples = 0;
-    let mut chats_to_process: Vec<Uuid> = user_chats.iter().map(|chat| chat.id).collect();
+    let samples_per_query = match req_body.samples_per_query {
+        Some(n) => n,
+        None => 30
+    };
+    let overlap = match req_body.overlap {
+        Some(n) => n,
+        None => 4
+    };
 
-    // Process initial messages for each chat
-    while !chats_to_process.is_empty() && total_samples < n_samples as usize {
-        let chat_id = chats_to_process.pop().unwrap();
-        let chat_messages = Message::get_messages_by_chat_id(&app_state.pool, chat_id)
-            .await
-            .map_err(|e| {
-                error!("Failed to get messages for chat: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
-        
-        // if chat_messages count <= 2, continue (skip it)
-        if chat_messages.len() > 2 {
-            let selected_messages: Vec<Message> = chat_messages
-                .into_iter()
-                .take(10)
-                .collect();
-
-            let added_count = selected_messages.len();
-            samples_dict.insert(chat_id, selected_messages);
-            total_samples += added_count;
-        }
+    if user_messages.len() as u32 > max_samples {
+        user_messages = user_messages.into_iter().take(max_samples as usize).collect();
     }
 
-    let mut exhausted_chats: HashSet<Uuid> = HashSet::new();
+    user_messages.reverse();
 
-    // Continue adding messages until we reach n_samples
-    while total_samples < n_samples as usize && exhausted_chats.len() < samples_dict.len() {
-        for (chat_id, chat_messages) in samples_dict.iter_mut() {
-            if total_samples >= n_samples as usize {
-                break;
-            }
-            if exhausted_chats.contains(chat_id) {
-                continue;
-            }
-            match Message::get_next_msg(&app_state.pool, *chat_id, chat_messages.last().unwrap()).await {
-                Ok(Some(next_msg)) => {
-                    chat_messages.push(next_msg);
-                    total_samples += 1;
-                },
-                Ok(None) => {
-                    exhausted_chats.insert(*chat_id);
-                },
-                Err(e) => {
-                    error!("Failed to get next message: {:?}", e);
-                    return Err(actix_web::error::ErrorInternalServerError(e));
-                }
-            }
-        }
-    }
+    let mut generated_samples: Vec<String> = Vec::new();
+    let mut start_index = 0;
 
-    // Add this after populating samples_dict
-    // debug
-    for (chat_id, messages) in &samples_dict {
-        info!("Chat ID: {}, Number of messages: {}", chat_id, messages.len());
-    }
+    while start_index < user_messages.len() {
+        let end_index = std::cmp::min(start_index + samples_per_query as usize, user_messages.len());
+        let sample_slice = user_messages[start_index..end_index].to_vec();
 
-    let max_ctxt_chars = 200_000;
-    let mut memory_ctxt = String::new();
+        let mut memory_ctxt = String::new();
+        memory_ctxt.push_str("<chat_messages>\n");
     
-    'chat_loop: for (_chat_id, messages) in samples_dict.iter() {
-        memory_ctxt.push_str("<begin chat>\n");
-        for msg in messages {
+        for (i, msg) in sample_slice.iter().enumerate() {
             let message_content = format!(
-                "<begin message from {}>\n{}\n</end message>\n",
-                msg.role, msg.text
+                "<message {}: {}>\n{}\n</message {}: {}>\n",
+                i, msg.role, msg.text, i, msg.role
             );
-
-            if memory_ctxt.chars().count() + message_content.chars().count() < max_ctxt_chars {
-                memory_ctxt.push_str(&message_content);
-            } else {
-                let remaining_chars = max_ctxt_chars - memory_ctxt.chars().count();
-                let truncated_content = message_content.chars().take(remaining_chars).collect::<String>();
-                memory_ctxt.push_str(&truncated_content);
-                memory_ctxt.push_str("\n</end chat>");
-
-                // Process the current context
-                process_memory_context(&app_state, &req_body.user_id, &memory_ctxt, req_body.memory_prompt_id, req_body.log_dir.clone()).await?;
-
-                // Reset the context for the next batch
-                memory_ctxt.clear();
-                continue 'chat_loop;
-            }
+            memory_ctxt.push_str(&message_content);
         }
 
-        // End the chat if it wasn't ended due to reaching max_ctxt_chars
-        memory_ctxt.push_str("\n</end chat>");
-    }
+        memory_ctxt.push_str("</chat_messages>\n");
 
-    // Process any remaining context
-    if !memory_ctxt.is_empty() {
-        process_memory_context(&app_state, &req_body.user_id, &memory_ctxt, req_body.memory_prompt_id, req_body.log_dir.clone()).await?;
+        generated_samples.push(memory_ctxt);
+
+        if end_index == user_messages.len() {
+            break;
+        }
+
+        start_index += (samples_per_query - overlap) as usize;
     }
+        
+    info!("Generated {} samples", generated_samples.len());
+
+    process_memory_context(&app_state, &user_id, &generated_samples, req_body.memory_prompt_id, req_body.log_dir.clone()).await?;
 
     Ok(HttpResponse::Ok().finish())
 }
@@ -415,7 +365,7 @@ async fn generate_memories_from_chat_history(
 async fn process_memory_context(
     app_state: &web::Data<Arc<AppState>>,
     user_id: &str,
-    memory_ctxt: &str,
+    samples: &Vec<String>,
     memory_prompt_id: Uuid,
     log_dir: Option<String>,
 ) -> Result<(), actix_web::Error> {
@@ -426,65 +376,54 @@ async fn process_memory_context(
             actix_web::error::ErrorInternalServerError(e)
         })?;
 
-    
-    let mut ai_messages: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestSystemMessageArgs::default()
-            .content(memory_prompt.prompt.clone())
-            .build()
-            .map_err(|e| {
-                error!("Failed to build user message: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?
-            .into(),
-        ChatCompletionRequestSystemMessageArgs::default()
-            .content(memory_ctxt.to_string())
-            .build()
-            .map_err(|e| {
-                error!("Failed to build user message: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?
-            .into(),
-    ];
+    let mut generated_memories: Vec<String> = Vec::new();
 
-    if let Some(example) = &memory_prompt.example {
-        ai_messages.insert(1, ChatCompletionRequestAssistantMessageArgs::default()
-            .content(example.to_string())
+    for sample in samples {
+        let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
+            ChatCompletionRequestUserMessageArgs::default()
+            .content(format!("{}\n{}",
+                sample,
+                memory_prompt.prompt.clone(), 
+            ))
             .build()
             .map_err(|e| {
                 error!("Failed to build user message: {:?}", e);
                 actix_web::error::ErrorInternalServerError(e)
             })?
-            .into());
+            .into(),
+        ];
+
+        let request = CreateChatCompletionRequestArgs::default()
+            .model("claude-3-5-sonnet-20240620")
+            .messages(ai_messages)
+            .build()
+            .map_err(|e| {
+                error!("Failed to build chat completion request: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+
+        let response = app_state.keywords_client
+            .chat()
+            .create(request)
+            .await
+            .map_err(|e| {
+                error!("Failed to get chat completion response: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+
+        generated_memories.push(
+            response.choices.first()
+                .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
+                .message.content.clone()
+                .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))?
+        );
     }
 
-    let request = CreateChatCompletionRequestArgs::default()
-        .model("claude-3-5-sonnet-20240620")
-        .messages(ai_messages)
-        .build()
-        .map_err(|e| {
-            error!("Failed to build chat completion request: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
-
-    let response = app_state.keywords_client
-        .chat()
-        .create(request)
-        .await
-        .map_err(|e| {
-            error!("Failed to get chat completion response: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
-
-    let generated_memory = response.choices.first()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
-        .message.content.clone()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))?;
-
-    println!("Generated memory before saving: {}", generated_memory);
+    // info!("Generated memory before saving: {:?}", generate_memories);
 
     // Log the memory to a file
     if let Some(log_dir) = log_dir.clone() {
-        log_memory(user_id, memory_ctxt, &memory_prompt_id.to_string(), &generated_memory, &log_dir, &memory_prompt.prompt.clone(), memory_prompt.example.as_deref())
+        log_memory(user_id, samples, &memory_prompt_id.to_string(), &generated_memories, &log_dir, &memory_prompt.prompt.clone(), memory_prompt.example.as_deref())
             .map_err(|e| {
                 error!("Failed to log memory: {:?}", e);    
                 actix_web::error::ErrorInternalServerError(e)
@@ -501,7 +440,21 @@ async fn process_memory_context(
             })?
             .into(),
         ChatCompletionRequestUserMessageArgs::default()
-            .content(generated_memory.to_string())
+            .content(
+                generated_memories
+                .iter()
+                .enumerate()
+                .map(|(i, m)| {
+                    let collection = m
+                        .split("\"\"\"")
+                        .nth(1)
+                        .unwrap_or("")
+                        .to_string();
+                    format!("{}\n", collection)
+                })
+                .collect::<Vec<String>>()
+                .join("\n"),
+            )
             .build()
             .map_err(|e| {
                 error!("Failed to build user message: {:?}", e);
@@ -599,9 +552,9 @@ async fn process_memory_context(
 
 fn log_memory(
     user_id: &str, 
-    memory_context: &str, 
+    samples: &Vec<String>, 
     memory_prompt_id: &str, 
-    generated_memories: &str, 
+    generated_memories: &Vec<String>, 
     dir_path: &str,
     prompt: &str,
     example: Option<&str>,
@@ -618,13 +571,15 @@ fn log_memory(
         .open(log_file)?;
 
     writeln!(file, "user_id=\"{}\"", user_id)?;
+    writeln!(file, "memory_prompt_id=\"{}\"", memory_prompt_id)?;
     writeln!(file, "memory_prompt=\"{}\"", prompt)?;
     if let Some(example) = example {
         writeln!(file, "example=\"{}\"", example)?;
     }
-    writeln!(file, "memory_context=\"{}\"", memory_context)?;
-    writeln!(file, "memory_prompt_id=\"{}\"", memory_prompt_id)?;
-    writeln!(file, "generated_memories=\"{}\"", generated_memories)?;
+    for (sample, generated_memory) in samples.iter().zip(generated_memories.iter()) {
+        writeln!(file, "sample=\"{}\"", sample)?;
+        writeln!(file, "generated_memory=\"{}\"", generated_memory)?;
+    }
     writeln!(file, "\n")?;
 
     Ok(())

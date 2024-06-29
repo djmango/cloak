@@ -286,7 +286,8 @@ impl Message {
     #[allow(dead_code)]
     pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str) -> Result<Vec<Message>> {
         let query_str = r#"
-            SELECT * FROM messages WHERE user_id = $1'
+            SELECT * FROM messages WHERE user_id = $1
+            ORDER BY created_at DESC
         "#;
 
         let rows = query(query_str)

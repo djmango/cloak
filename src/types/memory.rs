@@ -32,7 +32,9 @@ pub struct DeleteMemoryRequest {
 pub struct GenerateMemoriesRequest {
     pub user_id: String,
     pub memory_prompt_id: Uuid,
-    pub n_samples: Option<u32>,
+    pub max_samples: Option<u32>,
+    pub samples_per_query: Option<u32>,
+    pub overlap: Option<u32>,
     pub log_dir: Option<String>,
 }
 
