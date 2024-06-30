@@ -14,6 +14,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{info, warn, error};
 use uuid::Uuid;
+use futures::future::join_all;
 use crate::AppState;
 use crate::AppConfig;
 use crate::types::{AddMemoryPromptRequest, CreateMemoryRequest, GenerateMemoriesRequest, GetAllMemoriesQuery, UpdateMemoryRequest};
@@ -274,8 +275,18 @@ async fn delete_memory(
 async fn add_memory_prompt(
     app_state: web::Data<Arc<AppState>>,
     _app_config: web::Data<Arc<AppConfig>>,
+    authenticated_user: AuthenticatedUser,
     req_body: web::Json<AddMemoryPromptRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
+    match authenticated_user.user_id.clone().as_str() {
+        "user_01HRBJ8FVP3JT28DEWXN6JPKF5" => (),
+        "user_01HY5EW9Z5XVE34GZXKH4NC2Y1" => (),
+        "user_01J12R88378H1Z5R3JCGEPJ6RA" => (),
+        _ => {
+            return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
+        }
+    }
+
     let memory_prompt = MemoryPrompt::new(
         &app_state.pool,
         &req_body.prompt,
@@ -294,8 +305,17 @@ async fn add_memory_prompt(
 async fn generate_memories_from_chat_history(
     app_state: web::Data<Arc<AppState>>,
     _app_config: web::Data<Arc<AppConfig>>,
+    authenticated_user: AuthenticatedUser,
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
+    match authenticated_user.user_id.clone().as_str() {
+        "user_01HRBJ8FVP3JT28DEWXN6JPKF5" => (),
+        "user_01HY5EW9Z5XVE34GZXKH4NC2Y1" => (),
+        "user_01J12R88378H1Z5R3JCGEPJ6RA" => (),
+        _ => {
+            return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
+        }
+    }
 
     let user_id = req_body.user_id.clone();
 
@@ -378,50 +398,61 @@ async fn process_memory_context(
 
     let mut generated_memories: Vec<String> = Vec::new();
 
-    for (index, sample) in samples.iter().enumerate() {
-        info!("Processing sample {} of {}", index + 1, samples.len());
+    let futures: Vec<_> = samples.iter().enumerate().map(|(index, sample)| {
+        let app_state = app_state.clone();
+        let memory_prompt = memory_prompt.clone();
 
-        let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
-            ChatCompletionRequestUserMessageArgs::default()
-            .content(format!("{}\n{}",
-                sample,
-                memory_prompt.prompt.clone(), 
-            ))
-            .build()
-            .map_err(|e| {
-                error!("Failed to build user message: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?
-            .into(),
-        ];
+        async move {
+            info!("Processing sample {} of {}", index + 1, samples.len());
 
-        let request = CreateChatCompletionRequestArgs::default()
-            .model("claude-3-5-sonnet-20240620")
-            .messages(ai_messages)
-            .build()
-            .map_err(|e| {
-                error!("Failed to build chat completion request: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
+            let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
+                ChatCompletionRequestUserMessageArgs::default()
+                .content(format!("{}\n{}",
+                    sample,
+                    memory_prompt.prompt.clone(), 
+                ))
+                .build()
+                .map_err(|e| {
+                    error!("Failed to build user message: {:?}", e);
+                    actix_web::error::ErrorInternalServerError(e)
+                })?
+                .into(),
+            ];
 
-        let response = app_state.keywords_client
-            .chat()
-            .create(request)
-            .await
-            .map_err(|e| {
-                error!("Failed to get chat completion response: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
-        
-        info!("Generated memory: {:?}", response.choices.first().unwrap().message.content);
-        generated_memories.push(
+            let request = CreateChatCompletionRequestArgs::default()
+                .model("claude-3-5-sonnet-20240620")
+                .messages(ai_messages)
+                .build()
+                .map_err(|e| {
+                    error!("Failed to build chat completion request: {:?}", e);
+                    actix_web::error::ErrorInternalServerError(e)
+                })?;
+
+            let response = app_state.keywords_client
+                .chat()
+                .create(request)
+                .await
+                .map_err(|e| {
+                    error!("Failed to get chat completion response: {:?}", e);
+                    actix_web::error::ErrorInternalServerError(e)
+                })?;
+            
+            info!("Generated memory: {:?}", response.choices.first().unwrap().message.content);
             response.choices.first()
                 .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
                 .message.content.clone()
-                .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))?
-        );
-    }
+                .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))
+        }
+    }).collect();
 
+    let results: Vec<Result<String, actix_web::Error>> = join_all(futures).await;
+
+    for result in results {
+        match result {
+            Ok(content) => generated_memories.push(content),
+            Err(e) => error!("Error processing memory: {:?}", e),
+        }
+    }
     // info!("Generated memory before saving: {:?}", generate_memories);
 
     // Log the memory to a file
