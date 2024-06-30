@@ -1,0 +1,671 @@
+As a memory extraction AI, your task is to distill key insights from user chat histories to enhance future AI interactions. Adhere to the following protocol:
+
+1. Disregard any chats that contain nonsensical or random content (e.g., random character strings).
+2. Focus on identifying:
+   a) Repeated user behaviors or requests
+   b) Expressed preferences for information delivery or interaction style
+   c) Areas of interest or expertise
+   d) Communication patterns or quirks
+3. Formulate each memory as a concise statement, no longer than three sentences.
+4. Ensure each memory provides actionable information for improving AI responses.
+5. Avoid redundancy; each memory should offer unique insights.
+6. Consider both explicit statements and implicit patterns in user behavior.
+
+Present your findings as a bulelt point list of distinct memories, each offering valuable guidance for personalizing AI interactions.
+
+I've provided several examples of correct memory extraction
+
+<begin chat><begin message from user>
+
+Read my comment about this code a collaborator wrote for creating memories from user messages. Then write the pseudocode I described below in Rust, thinking step by step before doing so.
+
+<review comment>
+
+ur not sorting msgs by time tho so the windows capture random msg chunks. i see ur point tho, there may be cases where the user's intent/behavior becomes only obvious after multiple convo turns with ai. for example, user may follow-up ai with corrections and this may be more valuable info on what user wants then the original message. 
+
+why don't we try: 
+- replace samples with samples_dict with type {chat_id: []} // conver this type into Rust type. the list is total msgs added per chat
+- keep total_samples count
+- get chats_to_process, a list of all unique user chat_ids
+- while chats_to_process is not empty, 
+- pop chat from chats_to_process
+- add first 5 msgs from chat to samples_dict[chat]. 
+- total_samples += 5 
+
+- while len(total_samples) < n_samples:. 
+- for chat in samples_dict:
+- if len(total_samples) >= n_samples: break
+-  samples_dict[chat].append(get_next_msg(samples_dict[chat][-1]))
+- total_msgs += 1
+</review comment> 
+
+
+// routes/memory.rs
+
+use actix_web::{post, web, HttpResponse, Responder};
+use crate::models::memory::Memory;
+use crate::models::{MemoryPrompt, Message};
+use async_openai::config::OpenAIConfig;
+use async_openai::types::{
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs
+};
+use async_openai::Client;
+use serde_json::{json, Value};
+use sqlx::PgPool;
+use std::sync::Arc;
+use tracing::{info, error};
+use uuid::Uuid;
+use crate::AppState;
+use crate::AppConfig;
+use crate::types::GenerateMemoriesRequest;
+use rand::seq::SliceRandom;
+use rand::Rng;
+
+pub async fn process_memory(
+    pool: &PgPool,
+    user_id: &str,
+    messages: Vec<ChatCompletionRequestMessage>,
+    client: Client<OpenAIConfig>,
+    memory_prompt_id: Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Fetch all memories for the user
+    let user_memories = Memory::get_all_memories(pool, user_id, memory_prompt_id).await?;
+    let formatted_memories = Memory::format_memories(user_memories);
+
+    info!("User memories: {}", formatted_memories);
+    info!("Messages: {:?}", messages);
+
+    // Prepare the messages for the AI, including the formatted memories
+    let mut ai_messages = vec![ChatCompletionRequestSystemMessageArgs::default()
+        .content(format!(
+            "You are an AI assistant with access to the following user memories:\n{}",
+            formatted_memories
+        ))
+        .build()?
+        .into()];
+    ai_messages.extend(messages);
+
+    let request = CreateChatCompletionRequestArgs::default()
+        .max_tokens(512u32)
+        .model("claude-3-5-sonnet-20240620")
+        .messages(ai_messages)
+        .tools(vec![
+            ChatCompletionToolArgs::default()
+                .r#type(ChatCompletionToolType::Function)
+                .function(
+                    FunctionObjectArgs::default()
+                        .name("create_memory")
+                        .description("Create a new memory based on the user's input.")
+                        .parameters(json!({
+                            "type": "object",
+                            "properties": {
+                                "memory": {
+                                    "type": "string",
+                                    "description": "The memory content to be stored.",
+                                },
+                            },
+                            "required": ["memory"],
+                        }))
+                        .build()?,
+                )
+                .build()?,
+            ChatCompletionToolArgs::default()
+                .r#type(ChatCompletionToolType::Function)
+                .function(
+                    FunctionObjectArgs::default()
+                        .name("update_memory")
+                        .description("Update an existing memory based on the user's input.")
+                        .parameters(json!({
+                            "type": "object",
+                            "properties": {
+                                "memory_id": {
+                                    "type": "string",
+                                    "description": "The ID of the memory to be updated.",
+                                },
+                                "new_memory": {
+                                    "type": "string",
+                                    "description": "The updated memory content.",
+                                },
+                            },
+                            "required": ["memory_id", "new_memory"],
+                        }))
+                        .build()?,
+                )
+                .build()?,
+            ChatCompletionToolArgs::default()
+                .r#type(ChatCompletionToolType::Function)
+                .function(
+                    FunctionObjectArgs::default()
+                        .name("delete_memory")
+                        .description("Delete a memory based on the memory ID.")
+                        .parameters(json!({
+                            "type": "object",
+                            "properties": {
+                                "memory_id": {
+                                    "type": "string",
+                                    "description": "The ID of the memory to be deleted.",
+                                },
+                            },
+                            "required": ["memory_id"],
+                        }))
+                        .build()?,
+                )
+                .build()?,
+        ])
+        .build()?;
+
+    let response_message = client
+        .chat()
+        .create(request)
+        .await?
+        .choices
+        .first()
+        .unwrap()
+        .message
+        .clone();
+
+    if let Some(tool_calls) = response_message.tool_calls {
+        for tool_call in tool_calls {
+            let name = tool_call.function.name.clone();
+            let args = tool_call.function.arguments.clone();
+
+            call_fn(pool, &name, &args, user_id, memory_prompt_id).await?;
+        }
+    }
+
+    // Return the content of the response message
+    let response_content = response_message.content.unwrap_or_default();
+    info!("Memory response content: {}", response_content);
+    Ok(response_content)
+}
+
+async fn call_fn(
+    pool: &PgPool,
+    name: &str,
+    args: &str,
+    user_id: &str,
+    memory_prompt_id: Uuid,
+) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    let function_args: serde_json::Value = args.parse()?;
+
+    match name {
+        "create_memory" => {
+            let memory = function_args["memory"].as_str().unwrap();
+            let new_memory = Memory::add_memory(pool, memory, user_id, memory_prompt_id).await?;
+            Ok(json!({
+                "status": "success",
+                "memory_id": new_memory.id,
+                "message": "Memory created successfully."
+            }))
+        }
+        "update_memory" => {
+            let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
+            let new_memory = function_args["new_memory"].as_str().unwrap();
+            let updated_memory =
+                Memory::update_memory(pool, memory_id, new_memory, user_id).await?;
+            Ok(json!({
+                "status": "success",
+                "memory_id": updated_memory.id,
+                "message": "Memory updated successfully."
+            }))
+        }
+        "delete_memory" => {
+            let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
+            Memory::delete_memory(pool, memory_id, user_id).await?;
+            Ok(json!({
+                "status": "success",
+                "memory_id": memory_id,
+                "message": "Memory deleted successfully."
+            }))
+        }
+        "generate_memories" => {
+            // info!("Function args: {:?}", function_args);
+            let generalizations = function_args["generalizations"].as_str().unwrap();
+            let memories = function_args["memories"].as_array().unwrap();
+
+            for memory in memories {
+                Memory::add_memory(pool, memory.as_str().unwrap(), user_id, memory_prompt_id).await?;
+            }
+
+            Ok(json!({
+                "status": "success",
+                "generalizations": generalizations,
+                "memories": memories,
+                "message": "Memories added successfully"
+            }))
+        }
+        _ => Err("Unknown function".into()),
+    }
+}
+
+pub async fn get_all_user_memories(
+    pool: Arc<PgPool>,
+    user_id: &str,
+    memory_prompt_id: Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Fetch all memories with a given memory prompt for the user
+    let user_memories = Memory::get_all_memories(&pool, user_id, memory_prompt_id).await?;
+    let formatted_memories = Memory::format_memories(user_memories);
+
+    Ok(formatted_memories)
+}
+
+#[post("/generate_from_chat")]
+async fn generate_memories_from_chat_history(
+    app_state: web::Data<Arc<AppState>>,
+    _app_config: web::Data<Arc<AppConfig>>,
+    req_body: web::Json<GenerateMemoriesRequest>,
+) -> Result<impl Responder, actix_web::Error> {
+    let client = app_state.keywords_client.clone();
+    
+    let memory_prompt_id = req_body.memory_prompt_id.clone();
+    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get memory prompt: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    let user_id = req_body.user_id.clone();
+    let user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get user messages: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    // We sample multiple segments of the user's messages to generate distinct memories and avoid over-filling the context
+    let sample_size = match req_body.sample_size.clone() {
+        Some(s) => s,
+        None => std::cmp::min(5, (user_messages.len() as f32 * 0.1).ceil() as u8),
+    };
+    let n_samples = match req_body.n_samples.clone() {
+        Some(n) => n,
+        None => ((user_messages.len() as f32 * 0.1) / sample_size as f32).ceil() as u8, // 10% of the user's messages
+    };
+    
+    let mut rng = rand::thread_rng();
+    let mut samples = Vec::new();
+
+    // Choose n_samples random samples from the user's messages
+    let mut used_indices = Vec::new();
+
+    for _ in 0..n_samples {
+        let mut sample: Vec<Message> = Vec::new();
+        let mut attempts = 0;
+
+        while sample.is_empty() && attempts < 100 {
+            let index = rng.gen_range(0..(user_messages.len() - sample_size as usize));
+            if used_indices.iter().all(|&i| (i as isize - index as isize).abs() >= sample_size as isize) {
+                sample = user_messages[index..index + sample_size as usize].to_vec();
+                used_indices.push(index);
+            }
+            attempts += 1;
+        }
+
+        if !sample.is_empty() {
+            samples.push(sample);
+        }
+    }
+
+    info!("Samples: {:?}", n_samples);
+
+}
+</end message>
+<begin message from assistant>
+Certainly! I'll write the pseudocode you described in Rust, thinking through each step carefully. Here's the implementation:
+
+```rust
+use std::collections::HashMap;
+
+// Assuming we have these types defined
+type ChatId = String;
+type Message = String;
+
+fn generate_memories(messages: Vec<(ChatId, Message)>, n_samples: usize) -> Vec<Message> {
+    // Convert samples to a dictionary with chat_id as key and a list of messages as value
+    let mut samples_dict: HashMap<ChatId, Vec<Message>> = HashMap::new();
+    let mut total_samples = 0;
+
+    // Get unique chat IDs
+    let mut chats_to_process: Vec<ChatId> = messages.iter()
+        .map(|(chat_id, _)| chat_id.clone())
+        .collect::<std::collections::HashSet<ChatId>>()
+        .into_iter()
+        .collect();
+
+    // Process initial messages for each chat
+    while !chats_to_process.is_empty() {
+        let chat_id = chats_to_process.pop().unwrap();
+        let chat_messages: Vec<Message> = messages.iter()
+            .filter(|(id, _)| id == &chat_id)
+            .map(|(_, msg)| msg.clone())
+            .collect();
+
+        let initial_messages = chat_messages.into_iter().take(5).collect::<Vec<Message>>();
+        samples_dict.insert(chat_id, initial_messages);
+        total_samples += 5;
+    }
+
+    // Continue adding messages until we reach n_samples
+    while total_samples < n_samples {
+        for (chat_id, chat_messages) in samples_dict.iter_mut() {
+            if total_samples >= n_samples {
+                break;
+            }
+
+            if let Some(next_msg) = get_next_msg(chat_id, chat_messages.last().unwrap()) {
+                chat_messages.push(next_msg);
+                total_samples += 1;
+            }
+        }
+    }
+
+    // Flatten the samples_dict into a single vector of messages
+    samples_dict.values().flatten().cloned().collect()
+}
+
+// This function needs to be implemented to get the next message for a given chat
+fn get_next_msg(chat_id: &ChatId, last_msg: &Message) -> Option<Message> {
+    // Implementation depends on how messages are stored and retrieved
+    unimplemented!()
+}
+```
+
+Let's break down the implementation:
+
+1. We define a function `generate_memories` that takes a vector of tuples `(ChatId, Message)` and the desired number of samples `n_samples`.
+
+2. We create a `HashMap` called `samples_dict` to store messages for each chat, and initialize `total_samples` to keep track of the total number of messages processed.
+
+3. We create a vector of unique chat IDs to process.
+
+4. We process the initial messages for each chat:
+   - Pop a chat ID from `chats_to_process`
+   - Get all messages for that chat
+   - Take the first 5 messages (or less if there are fewer than 5)
+   - Add these messages to `samples_dict`
+   - Increment `total_samples`
+
+5. After processing initial messages, we continue adding messages until we reach `n_samples`:
+   - Iterate through each chat in `samples_dict`
+   - If we haven't reached `n_samples`, try to get the next message for that chat
+   - If a next message exists, add it to the chat's message list and increment `total_samples`
+
+6. Finally, we flatten `samples_dict` into a single vector of messages and return it.
+
+This implementation ensures that:
+- We process messages from each chat in a balanced way
+- We maintain the order of messages within each chat
+- We collect a total of `n_samples` messages across all chats (or fewer if there aren't enough messages)
+
+Note that the `get_next_msg` function is left unimplemented, as its implementation would depend on how messages are stored and retrieved in your system.</end message>
+<begin message from user>
+output the pseudocode in markdown text format, so the reviewer can read it and understand algorithm easily</end message>
+<begin message from assistant>
+Certainly! Here's the pseudocode in markdown text format for easy reading and understanding:
+
+```markdown
+# Memory Generation Algorithm
+
+## Input:
+- `messages`: Vector of (ChatId, Message) tuples
+- `n_samples`: Desired number of samples
+
+## Output:
+- Vector of Message samples
+
+## Algorithm:
+
+1. Initialize:
+   - `samples_dict`: Empty HashMap<ChatId, Vec<Message>>
+   - `total_samples`: 0
+
+2. Create `chats_to_process`:
+   - Get unique ChatIds from `messages`
+   - Convert to Vector
+
+3. Process initial messages:
+   WHILE `chats_to_process` is not empty:
+     - Pop `chat_id` from `chats_to_process`
+     - Get all messages for `chat_id` from `messages`
+     - Take first 5 messages (or all if less than 5)
+     - Add these messages to `samples_dict[chat_id]`
+     - `total_samples` += number of messages added
+
+4. Continue adding messages:
+   WHILE `total_samples` < `n_samples`:
+     FOR EACH `chat_id` in `samples_dict`:
+       IF `total_samples` >= `n_samples`:
+         BREAK
+       Get next message after last message in `samples_dict[chat_id]`
+       IF next message exists:
+         Add to `samples_dict[chat_id]`
+         `total_samples` += 1
+
+5. Flatten and return:
+   - Combine all messages from `samples_dict` into a single vector
+   - Return this vector
+
+## Helper Function:
+`get_next_msg(chat_id, last_message)`:
+  - Retrieve the next message for the given chat after `last_message`
+  - Return the message if exists, otherwise return None
+```
+
+This pseudocode outlines the key steps of the algorithm in a more readable format. It shows the main logic flow, including the initialization, processing of initial messages, continued message addition, and the final flattening of results. The helper function `get_next_msg` is also mentioned, though its specific implementation would depend on your system's message storage and retrieval mechanisms.</end message>
+<begin message from user>
+output the pseudocode in markdown text format, so the reviewer can read it and understand algorithm easily. make it extremely brief & curt. </end message>
+<begin message from assistant>
+Here's an extremely brief and curt version of the pseudocode in markdown format:
+
+```markdown
+# Memory Generation Algorithm
+
+## Input
+- `messages`: [(ChatId, Message)]
+- `n_samples`: int
+
+## Output
+- [Message]
+
+## Steps
+1. `samples_dict`: {ChatId: [Message]} = {}
+2. `total_samples`: int = 0
+3. `chats_to_process`: [ChatId] = unique_chat_ids(messages)
+
+4. While `chats_to_process` not empty:
+   - Add first 5 msgs of next chat to `samples_dict`
+   - `total_samples` += 5
+
+5. While `total_samples` < `n_samples`:
+   - For each chat in `samples_dict`:
+     - If `total_samples` >= `n_samples`: break
+     - Add next msg to chat
+     - `total_samples` += 1
+
+6. Return flattened `samples_dict` values
+```</end message>
+<begin chat><begin message from user>
+asdfsdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsasdafsdafsdfdsafdsa</end message>
+<begin message from assistant>
+I'm sorry, but the text you provided appears to be a random string of letters without any meaningful content. It looks like you may have accidentally typed or pasted a series of characters. If you have a specific question or topic you'd like to discuss, please feel free to ask, and I'll do my best to assist you.</end message>
+<begin message from user>
+dsafdsaf</end message>
+<begin message from assistant>
+I'm sorry, but "dsafdsaf" doesn't appear to be a meaningful word or phrase. It looks like a random string of letters. Could you please clarify your question or provide more context? I'd be happy to help if you have a specific question or topic you'd like to discuss.</end message>
+<begin message from user>
+sdfsad</end message>
+</endchat>
+<begin chat>
+<begin message from user>
+convert this code into a CURL request
+
+import requests
+import uuid
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+def add_memory(base_url, prompt, id=None):
+    endpoint = f"{base_url}/add_memory_prompt"
+    # Prepare the payload
+    print("adding memory")
+    print("== prompt ==")
+    print(prompt)
+    payload = {
+        "prompt": prompt
+    }
+    if id:
+        payload["id"] = str(id)
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.post(endpoint, json=payload, headers=headers)
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+        print(f"Status Code: {response.status_code}")
+        print("Response:")
+        print(response.text)
+        return response.json()  # Return the parsed JSON response
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred: {e}")
+        return None
+
+def generate_from_chat(base_url, user_id, memory_prompt_id=None, n_samples=None):
+    endpoint = f"{base_url}/generate_from_chat"
+    # Prepare the payload
+    print(f"== test for user {user_id} ==")
+    payload = {
+        "user_id": user_id
+    }
+    if memory_prompt_id:
+        payload["memory_prompt_id"] = str(memory_prompt_id)
+    else:
+        # Generate a random UUID if not provided
+        payload["memory_prompt_id"] = str(uuid.uuid4())
+    
+    if n_samples is not None:
+        payload["n_samples"] = n_samples
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.post(endpoint, json=payload, headers=headers)
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+        print(f"Status Code: {response.status_code}")
+        print("Response:")
+        print(response.text)
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred: {e}")
+        return None
+
+# Example usage
+# TODO
+'''
+- run the new prompt on users responsible for top 20% traffic
+- log it all
+- read it and determine if memory useful or not
+- use chats & memories to create few-shot examples
+- iterate
+
+'''
+if __name__ == '__main__':
+    base_url = "http://localhost:8000/memory"
+                
+    user_ids = ["user_01HRBJ8FVP3JT28DEWXN6JPKF5", # sully                                                    
+                "user_01HY5EW9Z5XVE34GZXKH4NC2Y1", # minjune
+                "user_01HZEP4TFR49AG913DPQJ6MASW",# some russian guy
+                # https://us.posthog.com/project/59909/insights/K3EgabUz
+                "user_01HZEP4TFR49AG913DPQJ6MASW", #1326 msgs https://us.posthog.com/project/59909/person/larinvasyl%40pm.me
+                "user_01HVR20FDCZH3QX8WPYHR45MX7", #479 msgs https://us.posthog.com/project/59909/person/siuchun038%40gmail.com
+                "user_01J13W84Z1TDYH5BEW4288KZQX", #385 msgs https://us.posthog.com/project/59909/person/4A6AAC56-382C-4BA1-8D99-19ECC76553BE
+                "user_01J0JKNKX3FPMZ9JJ9NVG8D12A", # 291 msgs https://us.posthog.com/project/59909/person/alex.zorychta%40gmail.com
+                "user_01J15P3MRBT039MTC0KWGD114R", # 240 msgs https://us.posthog.com/project/59909/person/ai%40hmphu.com
+                "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
+                ] 
+
+    user_ids = [user_ids[1]]
+#'56b2bc1c-390c-4249-a553-b37c1d5a37f0'
+    memory_prompt_id = "079890a2-cedc-4f52-af4b-e1e94f59d043"  # Generate a random UUID
+    n_samples = 1000
+
+    for p in os.listdir('prompts'):
+        pf = os.path.join('prompts', p)
+        with open(pf, 'r') as f:
+            prompt = f.read()
+            #add_memory(base_url, prompt)
+     # Use ThreadPoolExecutor to run generate_from_chat concurrently
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(generate_from_chat, base_url, user_id, memory_prompt_id, n_samples) for user_id in user_ids]
+        
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as exc:
+                print(f'Generated an exception: {exc}')
+</end message>
+<begin message from assistant>
+To convert this Python script into a CURL request, we'll focus on the main API calls: `add_memory` and `generate_from_chat`. Here are the equivalent CURL commands for both functions:
+
+1. For `add_memory`:
+
+```bash
+curl -X POST "http://localhost:8000/memory/add_memory_prompt" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "prompt": "Your prompt text here",
+         "id": "optional_id_here"
+     }'
+```
+
+Note: Replace "Your prompt text here" with the actual prompt, and include the "id" field only if you want to specify an ID.
+
+2. For `generate_from_chat`:
+
+```bash
+curl -X POST "http://localhost:8000/memory/generate_from_chat" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "user_id": "user_01HRBJ8FVP3JT28DEWXN6JPKF5",
+         "memory_prompt_id": "079890a2-cedc-4f52-af4b-e1e94f59d043",
+         "n_samples": 1000
+     }'
+```
+
+Note: Replace the `user_id`, `memory_prompt_id`, and `n_samples` with the desired values.
+
+To use these CURL commands:
+
+1. Open a terminal or command prompt.
+2. Copy and paste the desired CURL command.
+3. Replace any placeholder values (like "Your prompt text here" or specific IDs) with your actual data.
+4. Run the command.
+
+These CURL commands will make the same HTTP requests as the Python script, but they don't include the looping, file reading, or concurrent execution features of the original script. If you need to perform multiple requests or read from files, you'll need to incorporate these CURL commands into a shell script or use them as part of a larger system.
+</end message>
+<begin message from user>
+output just curl cmd
+</end message>
+<begin message from assistant>
+```curl
+curl -X POST "http://localhost:8000/memory/generate_from_chat" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "user_id": "user_01HRBJ8FVP3JT28DEWXN6JPKF5",
+         "memory_prompt_id": "079890a2-cedc-4f52-af4b-e1e94f59d043",
+         "n_samples": 1000
+     }'
+```
+</end message>
+
+
+<generated memories>
+- when getting help writing pseudocode to communicate with collaborators, the user expects brief and concise outputs that are highly readable, formatted in markdown 
+- when the user asks the AI to convert code from one language to another (for example, python to CURL), the user expects the AI to output only the converted code, nothing else.
+- ... 
+</generated memories>
+

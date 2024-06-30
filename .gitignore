@@ -3,3 +3,5 @@
 .shuttle-storage
 /target
 Secrets.toml
+logs/
+scripts/prompts/

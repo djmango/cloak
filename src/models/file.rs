@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema)]
 #[sqlx(type_name = "filetype_enum", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Filetype {
@@ -13,7 +14,7 @@ pub enum Filetype {
     Mp3,
 }
 
-#[derive(Debug, FromRow, Serialize, Deserialize)]
+#[derive(Debug, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct File {
     pub id: Uuid,
     pub chat_id: Uuid,

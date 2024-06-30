@@ -3,13 +3,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
 use tracing::debug;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Chat {
     pub id: Uuid,
     pub user_id: String,
     pub name: String,
+    pub parent_message_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -21,6 +23,7 @@ impl Default for Chat {
             id: Uuid::new_v4(),
             user_id: String::new(),
             name: String::new(),
+            parent_message_id: None,
             deleted_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -34,6 +37,7 @@ impl Chat {
         pool: &PgPool,
         user_id: &str,
         chat_id: Option<Uuid>,
+        parent_message_id: Option<Uuid>,
     ) -> Result<Self> {
         // Fetch by chat_id if it exists
         if let Some(chat_id) = chat_id {
@@ -56,13 +60,14 @@ impl Chat {
             if let Some(chat) = query_as!(
                 Chat,
                 r#"
-                INSERT INTO chats (id, user_id, name, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO chats (id, user_id, name, parent_message_id, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING *
                 "#,
                 chat_id,
                 user_id,
                 "New Chat",
+                parent_message_id,
                 Utc::now(),
                 Utc::now()
             )
@@ -94,18 +99,20 @@ impl Chat {
         let chat = Chat {
             user_id: user_id.to_string(),
             name: "New Chat".to_string(),
+            parent_message_id,
             ..Default::default()
         };
         let chat = query_as!(
             Chat,
             r#"
-                INSERT INTO chats (id, user_id, name, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO chats (id, user_id, name, parent_message_id, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING *
                 "#,
             chat.id,
             chat.user_id,
             chat.name,
+            chat.parent_message_id,
             chat.created_at,
             chat.updated_at
         )
@@ -161,5 +168,22 @@ impl Chat {
 
         debug!("Chat soft-deleted with id: {:?}", chat_id);
         Ok(())
+    }
+
+    // Get all chats for a user
+    pub async fn get_chats_for_user(pool: &PgPool, user_id: &str) -> Result<Vec<Self>> {
+        // Select chats that have at least one message
+        let chats = query_as!(
+            Chat,
+            r#"
+            SELECT * FROM chats 
+            WHERE user_id = $1 
+            AND id IN (SELECT DISTINCT chat_id FROM messages)
+            "#,
+            user_id
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(chats)
     }
 }

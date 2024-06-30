@@ -1,15 +1,12 @@
-use crate::config::AppConfig;
-use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::models::message::Message;
-use crate::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
 use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestSystemMessage,
-    ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest,
+    ChatCompletionFunctionCall, ChatCompletionRequestMessage,
+    ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartText,
+    ChatCompletionRequestUserMessageContent,
+    ChatCompletionResponseFormat, ChatCompletionStreamOptions, ChatCompletionTool,
+    ChatCompletionToolChoiceOption, CreateChatCompletionRequest, InvisibilityMetadata,
 };
 use async_openai::Client;
 use bytes::Bytes;
@@ -19,11 +16,43 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
+use utoipa::OpenApi;
 
-use crate::routes::memory::get_all_user_memories;
-use crate::routes::memory::process_memory;
+// use crate::routes::memory::get_all_user_memories;
+use crate::config::AppConfig;
+use crate::middleware::auth::AuthenticatedUser;
+use crate::models::chat::Chat;
+use crate::models::message::Message;
+use crate::AppState;
 
+#[derive(OpenApi)]
+#[openapi(
+    paths(chat),
+    components(schemas(
+        CreateChatCompletionRequest,
+        ChatCompletionRequestMessage,
+        ChatCompletionResponseFormat,
+        ChatCompletionStreamOptions,
+        ChatCompletionTool,
+        ChatCompletionToolChoiceOption,
+        ChatCompletionFunctionCall,
+        InvisibilityMetadata,
+    ))
+)]
+pub struct ApiDoc;
+
+/// The primary oai mocked streaming chat completion endpoint, with all i.inc features
+#[utoipa::path(
+    get,
+    responses(
+        (status = 200, description = "Chat completion API", body = ChatCompletionResponse, content_type = "application/json"),
+        (status = 200, description = "Chat completion API (streaming)", body = ChatCompletionChunk, content_type = "text/event-stream"),
+        (status = 400, description = "Bad Request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
@@ -38,25 +67,38 @@ async fn chat(
     );
 
     let mut request_args = req_body.into_inner();
+    
+    // NOTE: uncomment when enabling memory injection
+    // let memory_prompts = MemoryPrompt::get_all(&app_state.pool)
+    //     .await
+    //     .map_err(|e| {
+    //         error!("Error getting memory prompts: {:?}", e);
+    //         actix_web::error::ErrorInternalServerError(e.to_string())
+    //     })?;
 
-    // Get all user memories
-    let all_memories = get_all_user_memories(
-        Arc::new(app_state.pool.clone()),
-        &authenticated_user.user_id,
-    )
-    .await
-    .map_err(|e| {
-        error!("Error fetching user memories: {:?}", e);
-        actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
-    })?;
+    // // Select memory prompt at random
+    // // TODO: Come up with better A/B testing strategy
+    // let memory_prompt = memory_prompts[rand::thread_rng().gen_range(0..memory_prompts.len())].clone();
 
-    // Prepend all memories to the messages as a system message
-    request_args.messages.insert(0, ChatCompletionRequestMessage::System(
-        ChatCompletionRequestSystemMessage {
-            content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
-            name: Some("Memory".to_string()),
-        }
-    ));
+    // NOTE disabling memory injection for now
+    // // Get all user memories
+    // let all_memories = get_all_user_memories(
+    //     Arc::new(app_state.pool.clone()),
+    //     &authenticated_user.user_id,
+    // )
+    // .await
+    // .map_err(|e| {
+    //     error!("Error fetching user memories: {:?}", e);
+    //     actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
+    // })?;
+
+    // // Prepend all memories to the messages as a system message
+    // request_args.messages.insert(0, ChatCompletionRequestMessage::System(
+    //     ChatCompletionRequestSystemMessage {
+    //         content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
+    //         name: Some("Memory".to_string()),
+    //     }
+    // ));
 
     // For now, we only support streaming completions
     request_args.stream = Some(true);
@@ -180,6 +222,7 @@ async fn chat(
     let invisibility_metadata = request_args.invisibility.clone();
 
     // Remove the invisibility field from the request_args
+
     // This field is not part of the OpenAI API and is only used internally
     request_args.invisibility = None;
 
@@ -269,6 +312,10 @@ async fn chat(
                             &app_state.pool,
                             user_id.clone().as_str(),
                             chat_id,
+                            match invisibility_metadata.as_ref() {
+                                Some(metadata) => metadata.branch_from_message_id,
+                                None => None,
+                            },
                         )
                         .await
                         {
@@ -281,19 +328,23 @@ async fn chat(
 
                         // If the metadata includes a regenerate_from_message_id, mark the messages after that
                         // in the chat as regenerated
-                        if let Some(invisibility_metadata) = invisibility_metadata.clone() {
-                            if let Some(regenerate_from_message_id) =
-                                invisibility_metadata.regenerate_from_message_id
-                            {
-                                if let Err(e) = Message::mark_regenerated_from_message_id(
-                                    &app_state.pool,
-                                    regenerate_from_message_id,
-                                )
-                                .await
+                        match invisibility_metadata.as_ref() {
+                            Some(metadata) => {
+                                if let Some(regenerate_from_message_id) =
+                                    metadata.regenerate_from_message_id
                                 {
-                                    error!("Error marking chat as regenerated: {:?}", e);
+                                    if let Err(e) = Message::mark_regenerated_from_message_id(
+                                        &app_state.pool,
+                                        regenerate_from_message_id,
+                                    )
+                                    .await
+                                    {
+                                        error!("Error marking chat as regenerated: {:?}", e);
+                                        // You might want to handle this error case more explicitly
+                                    }
                                 }
                             }
+                            None => {} // Do nothing if invisibility_metadata is None
                         }
 
                         // Insert into db a message, the last OAI message (prompt). This should always be a user message
@@ -318,14 +369,16 @@ async fn chat(
                             };
 
                             // Process memory
-                            info!("Processing memory");
-                            _ = process_memory(
-                                &app_state.pool,
-                                &chat.user_id,
-                                vec![last_oai_message],
-                                client,
-                            )
-                            .await;
+                            // NOTE: uncomment when enabling memory injection
+                            // info!("Processing memory");
+                            // _ = process_memory(
+                            //     &app_state.pool,
+                            //     &chat.user_id,
+                            //     vec![last_oai_message],
+                            //     client,
+                            //     memory_prompt.id,
+                            // )
+                            // .await;
                         } else {
                             error!("No messages found in request_args.messages");
                         }
@@ -337,6 +390,9 @@ async fn chat(
                             Some(model_id.clone()),
                             &content,
                             crate::models::message::Role::Assistant,
+                            None,
+                            None,
+                            // Some(memory_prompt.id.clone()), // NOTE: uncomment when enabling memory injection
                         )
                         .await
                         {

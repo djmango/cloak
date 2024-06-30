@@ -8,9 +8,11 @@ use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool, Type};
+use utoipa::ToSchema;
 use uuid::Uuid;
+use std::fmt;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema, PartialEq, Eq)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
 #[serde(rename_all = "lowercase")] // JSON value name
 pub enum Role {
@@ -20,7 +22,18 @@ pub enum Role {
     User,
 }
 
-#[derive(Debug, FromRow, Serialize, Deserialize)]
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Role::Assistant => write!(f, "assistant"),
+            Role::System => write!(f, "system"),
+            Role::Tool => write!(f, "tool"),
+            Role::User => write!(f, "user"),
+        }
+    }
+}
+
+#[derive(Debug, FromRow, Serialize, Deserialize, ToSchema, Clone)]
 pub struct Message {
     pub id: Uuid,
     pub chat_id: Uuid,
@@ -31,6 +44,9 @@ pub struct Message {
     pub model_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub memory_ids: Option<Vec<Uuid>>,
+    pub upvoted: Option<bool>,
+    pub memory_prompt_id: Option<Uuid>,
 }
 
 impl Default for Message {
@@ -45,6 +61,9 @@ impl Default for Message {
             model_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            memory_ids: None,
+            upvoted: None,
+            memory_prompt_id: None,
         }
     }
 }
@@ -57,6 +76,8 @@ impl Message {
         model_id: Option<String>,
         text: &str,
         role: Role,
+        memory_ids: Option<Vec<Uuid>>,
+        memory_prompt_id: Option<Uuid>,
     ) -> Result<Self> {
         let message = Message {
             chat_id,
@@ -64,14 +85,16 @@ impl Message {
             text: text.to_string(),
             role,
             model_id,
+            memory_ids,
+            memory_prompt_id,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_ids, created_at, updated_at, memory_prompt_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
             message.id,
             message.chat_id,
@@ -80,8 +103,10 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
+            message.memory_ids.as_deref(),
             message.created_at,
-            message.updated_at
+            message.updated_at,
+            message.memory_prompt_id
         )
         .execute(pool)
         .await?;
@@ -144,14 +169,15 @@ impl Message {
             role,
             model_id,
             created_at: created_at.unwrap_or_else(Utc::now),
+            memory_ids: None,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_ids, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
             message.id,
             message.chat_id,
@@ -160,6 +186,7 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
+            message.memory_ids.as_deref(),
             message.created_at,
             message.updated_at
         )
@@ -233,6 +260,110 @@ impl Message {
         // Perform the query
         query(query_str)
             .bind(message_id) // Bind the message id
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_by_id(pool: &PgPool, message_id: Uuid) -> Result<Message> {
+        let query_str = r#"
+            SELECT * FROM messages WHERE id = $1
+        "#;
+
+        let row = query(query_str)
+            .bind(message_id)
+            .fetch_optional(pool)
+            .await?;
+
+        match row {
+            Some(row) => Ok(Message::from_row(&row)?),
+            None => Err(anyhow::anyhow!("Message not found")),
+        }
+    }
+
+    // Get all messages for a given user ID
+    #[allow(dead_code)]
+    pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str) -> Result<Vec<Message>> {
+        let query_str = r#"
+            SELECT * FROM messages WHERE user_id = $1
+            ORDER BY created_at DESC
+        "#;
+
+        let rows = query(query_str)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+        let messages = rows.into_iter().map(|row| Message::from_row(&row).unwrap()).collect::<Vec<Message>>();
+
+        Ok(messages)
+    }
+
+    // Get all messages for a given chat ID
+    // pub async fn get_messages_by_chat_id(pool: &PgPool, chat_id: Uuid) -> Result<Vec<Message>> {
+    //     let query_str = r#"
+    //         SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC
+    //     "#;
+
+    //     let rows = query(query_str)
+    //         .bind(chat_id)
+    //         .fetch_all(pool)
+    //         .await?;
+
+    //     let messages = rows.into_iter().map(|row| Message::from_row(&row).unwrap()).collect::<Vec<Message>>();
+
+    //     Ok(messages)
+    // }
+
+    // pub async fn get_next_msg(pool: &PgPool, chat_id: Uuid, last_msg: &Message) -> Result<Option<Message>> {
+    //     let query_str = r#"
+    //         SELECT * FROM messages 
+    //         WHERE chat_id = $1 
+    //           AND created_at > $2 
+    //           AND role = 'user'
+    //         ORDER BY created_at ASC 
+    //         LIMIT 1
+    //     "#;
+
+    //     let row = query(query_str)
+    //         .bind(chat_id)
+    //         .bind(last_msg.created_at)
+    //         .fetch_optional(pool)
+    //         .await?;
+
+    //     match row {
+    //         Some(row) => Ok(Some(Message::from_row(&row)?)),
+    //         None => Ok(None),
+    //     }
+    // }
+
+    pub async fn upvote (pool: &PgPool, message_id: Uuid, user_id: &str) ->  Result<()> {
+        let query_str = r#"
+            UPDATE messages
+            SET upvoted = true
+            WHERE id = $1 AND user_id = $2
+        "#;
+
+        query(query_str)
+            .bind(message_id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn downvote (pool: &PgPool, message_id: Uuid, user_id: &str) ->  Result<()> {
+        let query_str = r#"
+        UPDATE messages
+        SET upvoted = false
+        WHERE id = $1 AND user_id = $2
+        "#;
+
+        query(query_str)
+            .bind(message_id)
+            .bind(user_id)
             .execute(pool)
             .await?;
 

@@ -32,6 +32,11 @@
         "ordinal": 5,
         "name": "deleted_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "parent_message_id",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
@@ -45,6 +50,7 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },

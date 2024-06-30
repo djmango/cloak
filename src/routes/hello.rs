@@ -1,5 +1,17 @@
 use actix_web::get;
+use utoipa::OpenApi;
 
+#[derive(OpenApi)]
+#[openapi(paths(hello_world))]
+pub struct ApiDoc;
+
+#[utoipa::path(
+    get,
+    path = "",
+    responses(
+        (status = 200, description = "Hello world!", body = String)
+    )
+)]
 #[get("/")]
 async fn hello_world() -> &'static str {
     "Invisibility is the art of allowing others to see through you. - Unknown

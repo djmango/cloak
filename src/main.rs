@@ -8,12 +8,15 @@ use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
+use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 
 mod config;
 mod middleware;
 mod models;
 mod prompts;
 mod routes;
+mod types;
 
 #[derive(Clone)]
 struct AppState {
@@ -22,6 +25,22 @@ struct AppState {
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
 }
+
+#[derive(OpenApi)]
+#[openapi(
+        nest(
+            (path = "/", api = routes::hello::ApiDoc),
+            (path = "/auth", api = routes::auth::ApiDoc),
+            (path = "/chats", api = routes::chat::ApiDoc),
+            (path = "/pay", api = routes::pay::ApiDoc),
+            (path = "/oai", api = routes::oai::ApiDoc),
+            (path = "/sync", api = routes::sync::ApiDoc),
+        ),
+        tags(
+            (name = "cloak", description = "Invisibiliy cloak API, powering i.inc and related services.")
+        )
+    )]
+struct ApiDoc;
 
 #[shuttle_runtime::main]
 async fn main(
@@ -41,6 +60,8 @@ async fn main(
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
     });
+
+    let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {
         cfg.service(
@@ -66,6 +87,11 @@ async fn main(
                         .service(routes::chat::autorename_chat),
                 )
                 .service(
+                    web::scope("/messages")
+                        .service(routes::messages::upvote_message)
+                        .service(routes::messages::downvote_message),
+                )
+                .service(
                     web::scope("/oai")
                         .service(routes::oai::chat)
                         .app_data(web::JsonConfig::default().limit(1024 * 1024 * 50)), // 50 MB
@@ -79,8 +105,18 @@ async fn main(
                         .service(routes::pay::paid)
                         .service(routes::pay::payment_success),
                 )
+                .service(
+                    web::scope("/memory")
+                        .service(routes::memory::generate_memories_from_chat_history)
+                        .service(routes::memory::add_memory_prompt)
+                        .service(routes::memory::create_memory)
+                        .service(routes::memory::get_all_memories)
+                        .service(routes::memory::update_memory)
+                        .service(routes::memory::delete_memory)
+                )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
+                .service(Scalar::with_url("/scalar", openapi))
                 .wrap(middleware::auth::AuthenticationMiddleware {
                     app_config: app_config.clone(),
                 })
