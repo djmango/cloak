@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, user_id, created_at, updated_at, content, deleted_at \n            FROM memories \n            WHERE user_id = $1 AND deleted_at IS NULL\n            ",
+  "query": "\n                    SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id\n                    FROM memories \n                    WHERE user_id = $1 AND deleted_at IS NULL\n                    ",
   "describe": {
     "columns": [
       {
@@ -32,6 +32,11 @@
         "ordinal": 5,
         "name": "deleted_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "memory_prompt_id",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
@@ -45,8 +50,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "400004ecdaa3c2dc6b1d6082b912167c5ad4a0a18747786206d02ff1b27ac2fb"
+  "hash": "cc97952b42848f9452d8115f43bbf6883adabd9d5f1fec3214ac0e5152490293"
 }

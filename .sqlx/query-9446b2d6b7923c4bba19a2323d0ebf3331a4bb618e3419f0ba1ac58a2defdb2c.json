@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM memory_prompts WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "prompt",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "example",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "upvotes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "9446b2d6b7923c4bba19a2323d0ebf3331a4bb618e3419f0ba1ac58a2defdb2c"
+}

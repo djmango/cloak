@@ -310,6 +310,7 @@ async fn generate_memories_from_chat_history(
         Some(n) => n,
         None => user_messages.len() as u32
     };
+
     let samples_per_query = match req_body.samples_per_query {
         Some(n) => n,
         None => 30
@@ -377,7 +378,9 @@ async fn process_memory_context(
 
     let mut generated_memories: Vec<String> = Vec::new();
 
-    for sample in samples {
+    for (index, sample) in samples.iter().enumerate() {
+        info!("Processing sample {} of {}", index + 1, samples.len());
+
         let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
             ChatCompletionRequestUserMessageArgs::default()
             .content(format!("{}\n{}",
@@ -409,7 +412,8 @@ async fn process_memory_context(
                 error!("Failed to get chat completion response: {:?}", e);
                 actix_web::error::ErrorInternalServerError(e)
             })?;
-
+        
+        info!("Generated memory: {:?}", response.choices.first().unwrap().message.content);
         generated_memories.push(
             response.choices.first()
                 .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
@@ -428,6 +432,8 @@ async fn process_memory_context(
                 actix_web::error::ErrorInternalServerError(e)
             })?;
     }
+
+    info!("Generated memories: {:?}", generated_memories);
 
     let parse_messages: Vec<ChatCompletionRequestMessage> = vec![
         ChatCompletionRequestSystemMessageArgs::default()
@@ -527,6 +533,7 @@ async fn process_memory_context(
         .message
         .clone();
     // Print the generated memory before saving
+    info!("parsed response, before tool_call: {:?}", parse_response.content);
 
     match parse_response.tool_calls {
         Some(tool_calls) => {
@@ -546,7 +553,7 @@ async fn process_memory_context(
                 all_memories.extend(memories);
             }
             
-            info!("Generated {} memories", all_memories.len());
+            info!("Tool call end, total {} memories", all_memories.len());
             Ok(all_memories)
         },
         None => {

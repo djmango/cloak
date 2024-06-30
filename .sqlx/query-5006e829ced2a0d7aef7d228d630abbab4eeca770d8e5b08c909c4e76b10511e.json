@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, chat_id, user_id, text, role as \"role: Role\", regenerated, model_id, created_at, updated_at FROM messages\n        WHERE user_id = $1 AND chat_id IN (SELECT id FROM chats WHERE user_id = $1 AND deleted_at IS NULL)\n        ",
+  "query": "\n        SELECT id, chat_id, user_id, text, role as \"role: Role\", regenerated, model_id, created_at, updated_at, memory_ids, upvoted, memory_prompt_id FROM messages\n        WHERE user_id = $1 AND chat_id IN (SELECT id FROM chats WHERE user_id = $1 AND deleted_at IS NULL)\n        ",
   "describe": {
     "columns": [
       {
@@ -59,6 +59,21 @@
         "ordinal": 8,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "memory_ids",
+        "type_info": "UuidArray"
+      },
+      {
+        "ordinal": 10,
+        "name": "upvoted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "memory_prompt_id",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
@@ -75,8 +90,11 @@
       false,
       true,
       false,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "b81c00ff2caf84a0c76f04b880b616f2bc66775eb74b5f9ea76ebfa19b43b643"
+  "hash": "5006e829ced2a0d7aef7d228d630abbab4eeca770d8e5b08c909c4e76b10511e"
 }

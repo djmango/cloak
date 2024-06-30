@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE memories \n            SET content = $1, updated_at = $2\n            WHERE id = $3 AND user_id = $4 AND deleted_at IS NULL\n            RETURNING *\n            ",
+  "query": "\n            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id\n            FROM memories \n            WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL\n            ",
   "describe": {
     "columns": [
       {
@@ -41,8 +41,6 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Timestamptz",
         "Uuid",
         "Text"
       ]
@@ -57,5 +55,5 @@
       false
     ]
   },
-  "hash": "be358bdd657b780e4f091a6b55cd226141a09f1d76d605742b2fedc2945d7542"
+  "hash": "0711cae8755479f181885217e936ec507ec5ea314912097b28caeadf459f05de"
 }
