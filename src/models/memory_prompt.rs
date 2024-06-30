@@ -8,9 +8,10 @@ use anyhow::Result;
 pub struct MemoryPrompt {
     pub id: Uuid,
     pub prompt: String,
-    pub upvotes: i32,
-    pub created_at: DateTime<Utc>,
     pub example: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl Default for MemoryPrompt {
@@ -18,8 +19,9 @@ impl Default for MemoryPrompt {
         MemoryPrompt {
             id: Uuid::new_v4(),
             prompt: String::new(),
-            upvotes: 0,
             created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
             example: None,
         }
     }
@@ -30,21 +32,23 @@ impl MemoryPrompt {
         let prompt = MemoryPrompt {
             id: Uuid::new_v4(),
             prompt: prompt.to_string(),
-            upvotes: 0,
             created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
             example: example,
         };
 
         // Save prompt to database
         query!(
             r#"
-            INSERT INTO memory_prompts (id, prompt, upvotes, created_at, example) 
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO memory_prompts (id, prompt, created_at, updated_at, deleted_at, example) 
+            VALUES ($1, $2, $3, $4, $5, $6)
             "#,
             prompt.id,
             prompt.prompt,
-            prompt.upvotes,
             prompt.created_at,
+            prompt.updated_at,
+            prompt.deleted_at,
             prompt.example
         )
         .execute(pool)
@@ -63,22 +67,6 @@ impl MemoryPrompt {
         .await?;
 
         Ok(prompt)
-    }
-
-    #[allow(dead_code)]
-    pub async fn upvote(pool: &PgPool, prompt_id: Uuid) -> Result<()> {
-        query!("UPDATE memory_prompts SET upvotes = upvotes + 1 WHERE id = $1", prompt_id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-    
-    #[allow(dead_code)]
-    pub async fn downvote(pool: &PgPool, prompt_id: Uuid) -> Result<()> {
-        query!("UPDATE memory_prompts SET upvotes = upvotes - 1 WHERE id = $1", prompt_id)
-            .execute(pool)
-            .await?;
-        Ok(())
     }
 
     #[allow(dead_code)]

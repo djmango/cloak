@@ -15,7 +15,7 @@ pub struct Memory {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
-    pub memory_prompt_id: Uuid,
+    pub memory_prompt_id: Option<Uuid>,
 }
 
 impl Default for Memory {
@@ -27,13 +27,13 @@ impl Default for Memory {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted_at: None,
-            memory_prompt_id: Uuid::new_v4(),
+            memory_prompt_id: None,
         }
     }
 }
 
 impl Memory {
-    pub async fn add_memory(pool: &PgPool, memory: &str, user_id: &str, prompt_id: Uuid) -> Result<Self> {
+    pub async fn add_memory(pool: &PgPool, memory: &str, user_id: &str, prompt_id: Option<Uuid>) -> Result<Self> {
         let now_utc = Utc::now();
         let memory_id = Uuid::new_v4();
 
@@ -177,7 +177,7 @@ impl Memory {
 }
 
 impl Memory {
-    pub fn new(id: Uuid, user_id: &str, content: &str, prompt_id: Uuid, created_at: Option<DateTime<Utc>>) -> Self {
+    pub fn new(id: Uuid, user_id: &str, content: &str, prompt_id: Option<Uuid>, created_at: Option<DateTime<Utc>>) -> Self {
         Memory {
             id,
             user_id: user_id.to_string(),

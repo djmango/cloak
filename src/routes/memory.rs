@@ -12,11 +12,11 @@ use async_openai::Client;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::{info, warn, error};
 use uuid::Uuid;
 use crate::AppState;
 use crate::AppConfig;
-use crate::types::{AddMemoryPromptRequest, CreateMemoryRequest, DeleteMemoryRequest, GenerateMemoriesRequest, GetAllMemoriesQuery, UpdateMemoryRequest};
+use crate::types::{AddMemoryPromptRequest, CreateMemoryRequest, GenerateMemoriesRequest, GetAllMemoriesQuery, UpdateMemoryRequest};
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -153,7 +153,7 @@ async fn call_fn(
     match name {
         "create_memory" => {
             let memory = function_args["memory"].as_str().unwrap();
-            let new_memory = Memory::add_memory(pool, memory, user_id, memory_prompt_id).await?;
+            let new_memory = Memory::add_memory(pool, memory, user_id, Some(memory_prompt_id)).await?;
             
             Ok(vec![new_memory])
         }
@@ -178,7 +178,7 @@ async fn call_fn(
 
             for memory in memory_strings {
                 memories.push(
-                    Memory::add_memory(pool, memory.as_str().unwrap(), user_id, memory_prompt_id).await?
+                    Memory::add_memory(pool, memory.as_str().unwrap(), user_id, Some(memory_prompt_id)).await?
                 );
             }
 
@@ -200,7 +200,6 @@ pub async fn get_all_user_memories(
 
     Ok(formatted_memories)
 }
-
 
 // create
 #[post("/create")]
@@ -237,13 +236,14 @@ async fn get_all_memories(
 }
 
 // update
-#[put("/update")]
+#[put("/{memory_id}")]
 async fn update_memory(
     app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
+    memory_id: web::Path<Uuid>,
     req_body: web::Json<UpdateMemoryRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let memory = Memory::update_memory(&app_state.pool, req_body.memory_id, &req_body.content, &authenticated_user.user_id)
+    let memory = Memory::update_memory(&app_state.pool, memory_id.into_inner(), &req_body.content, &authenticated_user.user_id)
         .await
         .map_err(|e| {
             error!("Failed to get memories: {:?}", e);
@@ -254,13 +254,13 @@ async fn update_memory(
 }
 
 // delete
-#[delete("/delete")]
+#[delete("/{memory_id}")]
 async fn delete_memory(
     app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
-    req_body: web::Json<DeleteMemoryRequest>,
+    memory_id: web::Path<Uuid>,
 ) -> Result<impl Responder, actix_web::Error> {
-    Memory::delete_memory(&app_state.pool, req_body.memory_id, &authenticated_user.user_id)
+    Memory::delete_memory(&app_state.pool, memory_id.into_inner(), &authenticated_user.user_id)
         .await
         .map_err(|e| {
             error!("Failed to get memories: {:?}", e);
@@ -295,7 +295,7 @@ async fn generate_memories_from_chat_history(
     app_state: web::Data<Arc<AppState>>,
     _app_config: web::Data<Arc<AppConfig>>,
     req_body: web::Json<GenerateMemoriesRequest>,
-) -> Result<impl Responder, actix_web::Error> {
+) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
 
     let user_id = req_body.user_id.clone();
 
@@ -356,9 +356,9 @@ async fn generate_memories_from_chat_history(
         
     info!("Generated {} samples", generated_samples.len());
 
-    process_memory_context(&app_state, &user_id, &generated_samples, req_body.memory_prompt_id, req_body.log_dir.clone()).await?;
+    let generated_memories = process_memory_context(&app_state, &user_id, &generated_samples, req_body.memory_prompt_id, req_body.log_dir.clone()).await?;
 
-    Ok(HttpResponse::Ok().finish())
+    Ok(web::Json(generated_memories))
 }
 
 async fn process_memory_context(
@@ -367,7 +367,7 @@ async fn process_memory_context(
     samples: &Vec<String>,
     memory_prompt_id: Uuid,
     log_dir: Option<String>,
-) -> Result<(), actix_web::Error> {
+) -> Result<Vec<Memory>, actix_web::Error> {
     let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
         .await
         .map_err(|e| {
@@ -528,24 +528,32 @@ async fn process_memory_context(
         .clone();
     // Print the generated memory before saving
 
-    if let Some(tool_calls) = parse_response.tool_calls {
-        for tool_call in tool_calls {
-            let name = tool_call.function.name.clone();
-            let args = tool_call.function.arguments.clone();
+    match parse_response.tool_calls {
+        Some(tool_calls) => {
+            let mut all_memories = vec![];
+            for tool_call in tool_calls {
+                let name = tool_call.function.name.clone();
+                let args = tool_call.function.arguments.clone();
 
-            let _memories = call_fn(&app_state.pool, &name, &args, user_id, memory_prompt_id)
-                .await
-                .map_err(|e| {
-                    error!("Failed to parse memories: {:?}", e);
-                    actix_web::error::ErrorInternalServerError(e)
-                })?
-                .clone();
+                let memories = call_fn(&app_state.pool, &name, &args, user_id, memory_prompt_id)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to parse memories: {:?}", e);
+                        actix_web::error::ErrorInternalServerError(e)
+                    })?
+                    .clone();
+                
+                all_memories.extend(memories);
+            }
             
-            // info!("Memories: {:?}", memories);
+            info!("Generated {} memories", all_memories.len());
+            Ok(all_memories)
+        },
+        None => {
+            warn!("No memories saved.");
+            Ok(vec![])
         }
     }
-
-    Ok(())
 }
 
 fn log_memory(

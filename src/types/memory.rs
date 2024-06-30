@@ -4,28 +4,18 @@ use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct CreateMemoryRequest {
-    // pub user_id: String,
-    pub memory_prompt_id: Uuid,
+    pub memory_prompt_id: Option<Uuid>,
     pub content: String,
 }
 
 #[derive(Deserialize)]
 pub struct GetAllMemoriesQuery {
-    // pub user_id: String,
     pub memory_prompt_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
 pub struct UpdateMemoryRequest {
-    // pub user_id: String,
-    pub memory_id: Uuid,
     pub content: String,
-}
-
-#[derive(Deserialize)]
-pub struct DeleteMemoryRequest {
-    // pub user_id: String,
-    pub memory_id: Uuid,
 }
 
 #[derive(Deserialize, ToSchema)]
