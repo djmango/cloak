@@ -429,54 +429,22 @@ async fn process_memory_context(
         async move {
             info!("Processing sample {} of {}", index + 1, samples.len());
 
-            let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
-                ChatCompletionRequestUserMessageArgs::default()
-                .content(format!("{}\n\n{}\n\n<reasoning>\n",
-                    memory_prompt.prompt.clone(),
-                    sample
-                ))
-                .build()
-                .map_err(|e| {
-                    error!("Failed to build user message: {:?}", e);
-                    actix_web::error::ErrorInternalServerError(e)
-                })?
-                .into(),
-            ];
+            let message_content = format!("{}\n\n{}\n\n<reasoning>\n",
+                memory_prompt.prompt.clone(),
+                sample
+            );
 
-            let request = CreateChatCompletionRequestArgs::default()
-                .model("claude-3-5-sonnet-20240620")
-                .messages(ai_messages)
-                .build()
-                .map_err(|e| {
-                    error!("Failed to build chat completion request: {:?}", e);
-                    actix_web::error::ErrorInternalServerError(e)
-                })?;
-
-            let response = app_state.keywords_client
-                .chat()
-                .create(request)
-                .await
-                .map_err(|e| {
-                    error!("Failed to get chat completion response: {:?}", e);
-                    actix_web::error::ErrorInternalServerError(e)
-                })?;
-            
-            info!("Generated memory: {:?}", response.choices.first().unwrap().message.content);
-
-            response.choices.first()
-                .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
-                .message.content.clone()
-                .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))
+            get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &message_content).await
         }
     }).collect();
 
     let results: Vec<Result<String, actix_web::Error>> = join_all(futures).await;
     for result in results {
         match result {
-            Ok(content) => {
+            Ok(result_content) => {
                 let now_utc = Utc::now();
                 let memory_id = Uuid::new_v4();
-                let new_memory = Memory::new(memory_id, user_id, content.as_str(), Some(memory_prompt_id), Some(now_utc));
+                let new_memory = Memory::new(memory_id, user_id, result_content.as_str(), Some(memory_prompt_id), Some(now_utc));
                 generated_memories.push(new_memory);
             }
             Err(e) => error!("Error processing memory: {:?}", e),
@@ -487,42 +455,12 @@ async fn process_memory_context(
 
     let formatted_memories: String = Memory::format_memories(generated_memories);
 
-    let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestUserMessageArgs::default()
-            .content(format!("{}\n\n{}", 
-                Prompts::FORMATTING_MEMORY,
-                serde_json::to_string(&formatted_memories).unwrap()
-            ))
-            .build()
-            .map_err(|e| {
-                error!("Failed to build user message: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?
-            .into(),
-    ];
+    let message_content = format!("{}\n\n{}", 
+        Prompts::FORMATTING_MEMORY,
+        serde_json::to_string(&formatted_memories).unwrap()
+    );
 
-    let request = CreateChatCompletionRequestArgs::default()
-        .model("claude-3-5-sonnet-20240620")
-        .messages(ai_messages)
-        .build()
-        .map_err(|e| {
-            error!("Failed to build chat completion request: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
-
-    let response = app_state.keywords_client
-        .chat()
-        .create(request)
-        .await
-        .map_err(|e| {
-            error!("Failed to get chat completion response: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
-
-    let formatted_content = response.choices.first()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
-        .message.content.clone()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))?;
+    let formatted_content = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &message_content).await?;
 
     let memory_regex = regex::Regex::new(r"(?s)(<memory>.*?</memory>)").unwrap();
     let mut inserted_memories = Vec::new();
@@ -541,4 +479,45 @@ async fn process_memory_context(
         inserted_memories.push(new_memory[0].clone());
     }
     Ok(inserted_memories)
+}
+
+// Add this utility function at the top of the file, after imports
+async fn get_chat_completion(
+    client: &Client<OpenAIConfig>,
+    model: &str,
+    content: &str,
+) -> Result<String, actix_web::Error> {
+    let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(content)
+            .build()
+            .map_err(|e| {
+                error!("Failed to build user message: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?
+            .into(),
+    ];
+
+    let request = CreateChatCompletionRequestArgs::default()
+        .model(model)
+        .messages(ai_messages)
+        .build()
+        .map_err(|e| {
+            error!("Failed to build chat completion request: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    let response = client
+        .chat()
+        .create(request)
+        .await
+        .map_err(|e| {
+            error!("Failed to get chat completion response: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    response.choices.first()
+        .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
+        .message.content.clone()
+        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))
 }

@@ -110,25 +110,25 @@ async fn chat(
 
     let mut request_args = req_body.into_inner();
 
-    // Wrap the memory fetching and system prompt creation in a Result
-    let system_prompt = match create_system_prompt(&app_state, &authenticated_user.user_id, start_time).await {
-        Ok(prompt) => prompt,
+    // Attempt to create the system prompt
+    match create_system_prompt(&app_state, &authenticated_user.user_id, start_time).await {
+        Ok(system_prompt) => {
+            // Log the system prompt
+            info!("System prompt created: {}", system_prompt);
+
+            // Prepend the system prompt to the messages
+            request_args.messages.insert(0, ChatCompletionRequestMessage::System(
+                ChatCompletionRequestSystemMessage {
+                    content: system_prompt,
+                    name: Some("system".to_string()),
+                }
+            ));
+        },
         Err(e) => {
-            error!("Error creating system prompt: {:?}", e);
-            return Err(actix_web::error::ErrorInternalServerError("Failed to create system prompt"));
+            // Log the error but continue without the system prompt
+            error!("Error creating system prompt: {:?}. Continuing without system prompt.", e);
         }
-    };
-
-    // Log the system prompt
-    info!("System prompt created: {}", system_prompt);
-
-    // Prepend the system prompt to the messages
-    request_args.messages.insert(0, ChatCompletionRequestMessage::System(
-        ChatCompletionRequestSystemMessage {
-            content: system_prompt,
-            name: Some("system".to_string()),
-        }
-    ));
+    }
 
     // For now, we only support streaming completions
     request_args.stream = Some(true);

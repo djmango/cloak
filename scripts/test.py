@@ -6,7 +6,7 @@ import tiktoken
 
 def get_jwt_token():
     # put ur jwt here
-    return ''
+    return 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyXzAxSFJCSjhGVlAzSlQyOERFV1hONkpQS0Y1IiwiZXhwIjoxNzIyODk2Nzk1LCJpYXQiOjE3MTk4NzI3OTV9.dBw8tb5_6Gmq58pAs75A6tAyPkHWgnrxk123MMLihmQ'
 
 def delete_all_memories(base_url, user_id):
     endpoint = f"{base_url}/memory/delete_all"
@@ -108,7 +108,7 @@ if __name__ == '__main__':
                 "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
                 ] 
 
-    user_ids = [user_ids[0]]
+    user_ids = [user_ids[1]]
     memory_prompt_id = '4bf7c374-1390-4887-9e5f-bfad6e75bd04'
     for p in os.listdir(os.path.join(cwd, 'prompts')):
         pf = os.path.join(cwd, 'prompts', p)
@@ -132,7 +132,7 @@ if __name__ == '__main__':
                     print(f"Total tokens in generated memories: {total_tokens}")
                     
                     for memory in memories:
-                        log_file_path = os.path.join(cwd, 'logs', f'{memory_prompt_id}-{memory["user_id"]}.csv')
+                        log_file_path = os.path.join(cwd, 'logs', f'{memory_prompt_id}-{memory["user_id"]}.txt')
                         if not os.path.exists(os.path.join(cwd, 'logs')):
                             os.makedirs(os.path.join (cwd, 'logs'), exist_ok=True)
                         with open(log_file_path, 'a') as log_file:
