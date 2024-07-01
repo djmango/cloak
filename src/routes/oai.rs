@@ -73,13 +73,13 @@ async fn create_system_prompt(
     - Access multiple advanced LLMs like GPT-4, Claude-3.5 Sonnet, and Gemini Pro 1.5
     - Use \"Sidekick\" feature to analyze screen content and context
 
-    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. The memory is provided below. 
+    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below. 
 
     {}
 
     If the memory is pertinent to the user's query, Invisibility will use the information when answering it.",
         start_time.format("%Y-%m-%d %H:%M:%S"),
-        Memory::format_memories(memories)
+        memories.iter().map(|m| m.content.clone()).collect::<Vec<String>>().join("\n\n")
     ))
 }
 

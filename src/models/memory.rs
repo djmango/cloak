@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
 use tracing::{debug, info};
 use uuid::Uuid;
+use regex::Regex;
+use std::time::Instant;
+use lazy_static::lazy_static;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Memory {
@@ -30,6 +33,10 @@ impl Default for Memory {
             memory_prompt_id: None,
         }
     }
+}
+
+lazy_static! {
+    static ref USER_INFO_REGEX: Regex = Regex::new(r"(?s)<user information>(.*?)</user information>").unwrap();
 }
 
 impl Memory {
@@ -140,54 +147,43 @@ impl Memory {
     }
 
     pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Option<Uuid>) -> Result<Vec<Self>> {
-        let result = match memory_prompt_id {
-            Some(_) => {
-                query_as!(
-                    Memory,
-                    r#"
-                    SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
-                    FROM memories 
-                    WHERE user_id = $1 AND deleted_at IS NULL 
-                    "#,
-                    user_id
-                )
-                .fetch_all(pool)
-                .await?
-            },
-            None => {
-                query_as!(
-                    Memory,
-                    r#"
-                    SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
-                    FROM memories 
-                    WHERE user_id = $1 AND deleted_at IS NULL
-                    "#,
-                    user_id
-                )
-                .fetch_all(pool)
-                .await?
-            }
-        };
+        let start = Instant::now();
+        let result = query_as!(
+            Memory,
+            r#"
+            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
+            FROM memories 
+            WHERE user_id = $1 AND deleted_at IS NULL
+            "#,
+            user_id
+        )
+        .fetch_all(pool)
+        .await?;
         
         debug!("All memories found: {:?}", result);
+        let duration = start.elapsed();
+        info!("Query execution time: {:?}", duration);
         Ok(result)
     }
-    #[allow(dead_code)]
-    pub fn format_memories(memories: Vec<Self>) -> String {
-        let formatted_memories: Vec<String> = memories
-            .iter()
-            .map(|memory| {
-                let timestamp = memory.created_at.with_timezone(&Utc);
-                format!(
-                    "{}: [{}] {};",
-                    memory.id,
-                    timestamp.format("%m/%d/%y %I:%M %p %Z"),
-                    memory.content
-                )
-            })
-            .collect();
 
-        formatted_memories.join("\n")
+    pub fn format_memories(memories: Vec<Self>) -> String {
+        let mut formatted_memories = String::new();
+
+        for (index, memory) in memories.iter().enumerate() {
+            info!("Memory {}: Content: {:?}", index, memory.content);
+            if let Some(captures) = USER_INFO_REGEX.captures(&memory.content) {
+                info!("Memory {}: Regex match found", index);
+                if let Some(content) = captures.get(1) {
+                    let extracted = content.as_str().trim();
+                    info!("Memory {}: Extracted content length: {} chars", index, extracted.len());
+                    formatted_memories.push_str(extracted);
+                    formatted_memories.push_str("\n");
+                }
+            } else {
+                info!("Memory {}: No regex match found", index);
+            }
+        }
+        formatted_memories.trim_end().to_string()
     }
 }
 

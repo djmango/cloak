@@ -29,10 +29,8 @@ use crate::types::{
     UpdateMemoryRequest, 
     DeleteAllMemoriesRequest
 };
-
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::Path;
+use crate::prompts::Prompts;
+use chrono::Utc;
 
 #[allow(dead_code)]
 pub async fn process_memory(
@@ -403,17 +401,17 @@ async fn generate_memories_from_chat_history(
         
     info!("Generated {} samples", generated_samples.len());
 
-    let generated_memories = process_memory_context(&app_state, &user_id, &generated_samples, req_body.memory_prompt_id, req_body.log_dir.clone()).await?;
+    let generated_memories = process_memory_context(&app_state, &user_id, &generated_samples, req_body.memory_prompt_id).await?;
 
     Ok(web::Json(generated_memories))
 }
 
+// add memory_metadata
 async fn process_memory_context(
     app_state: &web::Data<Arc<AppState>>,
     user_id: &str,
     samples: &Vec<String>,
     memory_prompt_id: Uuid,
-    log_dir: Option<String>,
 ) -> Result<Vec<Memory>, actix_web::Error> {
     let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
         .await
@@ -473,22 +471,13 @@ async fn process_memory_context(
     }).collect();
 
     let results: Vec<Result<String, actix_web::Error>> = join_all(futures).await;
-
     for result in results {
         match result {
             Ok(content) => {
-                let args = json!({
-                    "memory": content
-                }).to_string();
-    
-                let new_memory = call_fn(&app_state.pool, "create_memory", &args, user_id, memory_prompt_id)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to create memory: {:?}", e);
-                        actix_web::error::ErrorInternalServerError(e)
-                    })?;
-
-                generated_memories.push(new_memory[0].clone());
+                let now_utc = Utc::now();
+                let memory_id = Uuid::new_v4();
+                let new_memory = Memory::new(memory_id, user_id, content.as_str(), Some(memory_prompt_id), Some(now_utc));
+                generated_memories.push(new_memory);
             }
             Err(e) => error!("Error processing memory: {:?}", e),
         }
@@ -496,5 +485,60 @@ async fn process_memory_context(
 
     info!("Generated memories: {}", generated_memories.len());
 
-    Ok(generated_memories)
+    let formatted_memories: String = Memory::format_memories(generated_memories);
+
+    let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(format!("{}\n\n{}", 
+                Prompts::FORMATTING_MEMORY,
+                serde_json::to_string(&formatted_memories).unwrap()
+            ))
+            .build()
+            .map_err(|e| {
+                error!("Failed to build user message: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?
+            .into(),
+    ];
+
+    let request = CreateChatCompletionRequestArgs::default()
+        .model("claude-3-5-sonnet-20240620")
+        .messages(ai_messages)
+        .build()
+        .map_err(|e| {
+            error!("Failed to build chat completion request: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    let response = app_state.keywords_client
+        .chat()
+        .create(request)
+        .await
+        .map_err(|e| {
+            error!("Failed to get chat completion response: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    let formatted_content = response.choices.first()
+        .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
+        .message.content.clone()
+        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))?;
+
+    let memory_regex = regex::Regex::new(r"(?s)(<memory>.*?</memory>)").unwrap();
+    let mut inserted_memories = Vec::new();
+    for content in memory_regex.captures_iter(&formatted_content)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string())) {
+        let args = json!({
+            "memory": content
+        }).to_string();
+
+        let new_memory = call_fn(&app_state.pool, "create_memory", &args, user_id, memory_prompt_id)
+            .await
+            .map_err(|e| {
+                error!("Failed to create memory: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+        inserted_memories.push(new_memory[0].clone());
+    }
+    Ok(inserted_memories)
 }
