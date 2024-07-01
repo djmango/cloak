@@ -4,9 +4,27 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import tiktoken
 
-def add_memory(base_url, prompt, id=None):
+def get_jwt_token():
+    # jank. get ur JWT token from postman 
+    # and put it here.
+    return ''
+
+def delete_all_memories(base_url, user_id):
+    endpoint = f"{base_url}/memory/delete_all"
+    token = get_jwt_token()
+    payload = {"user_id": user_id}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+    response = requests.post(endpoint, json=payload, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+def add_memory(base_url, prompt, user_id, id=None):
     endpoint = f"{base_url}/add_memory_prompt"
     # Prepare the payload
+    token = get_jwt_token()
     print("adding memory")
     print("== prompt ==")
     print(prompt)
@@ -17,7 +35,8 @@ def add_memory(base_url, prompt, id=None):
         payload["id"] = str(id)
 
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"
     }
     try:
         response = requests.post(endpoint, json=payload, headers=headers)
@@ -30,8 +49,12 @@ def add_memory(base_url, prompt, id=None):
         print(f"An error occurred: {e}")
         return None
 
+# Modify this function to include the JWT token
 def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=1000, samples_per_query=30):
-    endpoint = f"{base_url}/generate_from_chat"
+    endpoint = f"{base_url}/memory/generate_from_chat"
+    # Get JWT token
+    token = get_jwt_token()
+    
     # Prepare the payload
     print(f"== test for user {user_id} ==")
     payload = {
@@ -40,7 +63,6 @@ def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=100
     if memory_prompt_id:
         payload["memory_prompt_id"] = str(memory_prompt_id)
     else:
-        # Generate a random UUID if not provided
         payload["memory_prompt_id"] = str(uuid.uuid4())
     
     if max_samples is not None:
@@ -50,11 +72,12 @@ def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=100
         payload["samples_per_query"] = samples_per_query
 
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"  # Add the JWT token to the headers
     }
     try:
         response = requests.post(endpoint, json=payload, headers=headers)
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
         print(f"Status Code: {response.status_code}")
         print("Response:")
         print(response.text)
@@ -64,12 +87,8 @@ def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=100
         return None
 
 def count_memory_tokens(memories):
-    # Initialize the tokenizer
     enc = tiktoken.get_encoding("cl100k_base")
-    
-    # Count tokens for each memory's content
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
-    
     return total_tokens
 
 # Example usage
@@ -85,7 +104,7 @@ def count_memory_tokens(memories):
 if __name__ == '__main__':
     cwd = os.path.dirname(os.path.realpath(__file__))
     print(cwd)
-    base_url = "http://localhost:8000/memory"
+    base_url = "http://localhost:8000"
                 
     user_ids = ["user_01HRBJ8FVP3JT28DEWXN6JPKF5", # sully                                                    
                 "user_01HY5EW9Z5XVE34GZXKH4NC2Y1", # minjune
@@ -99,7 +118,7 @@ if __name__ == '__main__':
                 "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
                 ] 
 
-    user_ids = user_ids[:2]
+    user_ids = [user_ids[1]]
     memory_prompt_id = '99ffa713-b445-40b8-a74c-ad8c1aee2675'
     for p in os.listdir(os.path.join(cwd, 'prompts')):
         pf = os.path.join(cwd, 'prompts', p)
@@ -107,9 +126,12 @@ if __name__ == '__main__':
             prompt = f.read()
    #         add_memory(base_url, prompt)
 
+    delete_all_memories(base_url, user_ids[0])
+    max_samples = 500
+    samples_per_query = 50
     # Use ThreadPoolExecutor to run generate_from_chat concurrently
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(generate_from_chat, base_url, user_id, memory_prompt_id) for user_id in user_ids]
+        futures = [executor.submit(generate_from_chat, base_url, user_id, memory_prompt_id, max_samples, samples_per_query) for user_id in user_ids]
         
         for future in as_completed(futures):
             try:
@@ -121,9 +143,10 @@ if __name__ == '__main__':
                     
                     for memory in memories:
                         log_file_path = os.path.join(cwd, 'logs', f'{memory_prompt_id}-{memory["user_id"]}.csv')
-                        if os.path.exists(log_file_path):
-                            os.makedirs(os.path.dirname(os.path.join (cwd, 'logs')), exist_ok=True)
+                        if not os.path.exists(os.path.join(cwd, 'logs')):
+                            os.makedirs(os.path.join (cwd, 'logs'), exist_ok=True)
                         with open(log_file_path, 'a') as log_file:
                             log_file.write(f'{memory["id"]},{memory["content"]}\n')
+
             except Exception as exc:
                 print(f'Generated an exception: {exc}')

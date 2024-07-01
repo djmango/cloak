@@ -33,3 +33,8 @@ pub struct AddMemoryPromptRequest {
     pub prompt: String,
     pub example: Option<String>,
 }
+
+#[derive(Deserialize)]
+pub struct DeleteAllMemoriesRequest {
+    pub user_id: String,
+}

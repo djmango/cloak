@@ -6,7 +6,11 @@ use crate::models::memory::Memory;
 use crate::models::{MemoryPrompt, Message};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
-    ChatCompletionNamedToolChoice, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionToolArgs, ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionName, FunctionObjectArgs
+    ChatCompletionNamedToolChoice, ChatCompletionRequestMessage, 
+    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, 
+    ChatCompletionToolArgs, ChatCompletionToolChoiceOption, 
+    ChatCompletionToolType, CreateChatCompletionRequestArgs, 
+    FunctionName, FunctionObjectArgs
 };
 use async_openai::Client;
 use serde_json::json;
@@ -17,7 +21,14 @@ use uuid::Uuid;
 use futures::future::join_all;
 use crate::AppState;
 use crate::AppConfig;
-use crate::types::{AddMemoryPromptRequest, CreateMemoryRequest, GenerateMemoriesRequest, GetAllMemoriesQuery, UpdateMemoryRequest};
+use crate::types::{
+    AddMemoryPromptRequest, 
+    CreateMemoryRequest, 
+    GenerateMemoriesRequest, 
+    GetAllMemoriesQuery, 
+    UpdateMemoryRequest, 
+    DeleteAllMemoriesRequest
+};
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -271,6 +282,29 @@ async fn delete_memory(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[post("/delete_all")]
+async fn delete_all_memories(
+    app_state: web::Data<Arc<AppState>>,
+    authenticated_user: AuthenticatedUser,
+    req_body: web::Json<DeleteAllMemoriesRequest>,
+) -> Result<impl Responder, actix_web::Error> {
+
+    if !authenticated_user.is_admin() {
+        return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
+    }
+
+    let user_id = req_body.user_id.clone();
+
+    let deleted_count = Memory::delete_all_memories(&app_state.pool, &user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to delete all memories: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    Ok(HttpResponse::Ok().json(json!({ "deleted_count": deleted_count })))
+}
+
 #[post("/add_memory_prompt")]
 async fn add_memory_prompt(
     app_state: web::Data<Arc<AppState>>,
@@ -278,13 +312,9 @@ async fn add_memory_prompt(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<AddMemoryPromptRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    match authenticated_user.user_id.clone().as_str() {
-        "user_01HRBJ8FVP3JT28DEWXN6JPKF5" => (),
-        "user_01HY5EW9Z5XVE34GZXKH4NC2Y1" => (),
-        "user_01J12R88378H1Z5R3JCGEPJ6RA" => (),
-        _ => {
-            return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
-        }
+
+    if !authenticated_user.is_admin() {
+        return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
     }
 
     let memory_prompt = MemoryPrompt::new(
@@ -308,13 +338,9 @@ async fn generate_memories_from_chat_history(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
-    match authenticated_user.user_id.clone().as_str() {
-        "user_01HRBJ8FVP3JT28DEWXN6JPKF5" => (),
-        "user_01HY5EW9Z5XVE34GZXKH4NC2Y1" => (),
-        "user_01J12R88378H1Z5R3JCGEPJ6RA" => (),
-        _ => {
-            return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
-        }
+
+    if !authenticated_user.is_admin() {
+        return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
     }
 
     let user_id = req_body.user_id.clone();
@@ -628,4 +654,3 @@ fn log_memory(
 
     Ok(())
 }
-

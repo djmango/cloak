@@ -113,6 +113,7 @@ async fn main(
                         .service(routes::memory::get_all_memories)
                         .service(routes::memory::update_memory)
                         .service(routes::memory::delete_memory)
+                        .service(routes::memory::delete_all_memories)
                 )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))

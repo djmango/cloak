@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
-use tracing::debug;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -103,6 +103,22 @@ impl Memory {
         Ok(memory)
     }
 
+    pub async fn delete_all_memories(pool: &PgPool, user_id: &str) -> Result<i64> {
+        let result = sqlx::query!(
+            "UPDATE memories 
+            SET deleted_at = $1
+            WHERE user_id = $2 AND deleted_at IS NULL",
+            Utc::now(),
+            user_id
+        )
+        .execute(pool)
+        .await?;
+
+        let affected_rows = result.rows_affected() as i64;
+        info!("All memories soft-deleted for user: {}. Affected rows: {}", user_id, affected_rows);
+        Ok(affected_rows)
+    }
+    
     pub async fn delete_memory(pool: &PgPool, memory_id: Uuid, user_id: &str) -> Result<Memory> {
         let memory = query_as!(
             Memory,
@@ -125,16 +141,15 @@ impl Memory {
 
     pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Option<Uuid>) -> Result<Vec<Self>> {
         let result = match memory_prompt_id {
-            Some(memory_prompt_id) => {
+            Some(_) => {
                 query_as!(
                     Memory,
                     r#"
                     SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
                     FROM memories 
-                    WHERE user_id = $1 AND deleted_at IS NULL AND memory_prompt_id = $2
+                    WHERE user_id = $1 AND deleted_at IS NULL 
                     "#,
-                    user_id,
-                    memory_prompt_id
+                    user_id
                 )
                 .fetch_all(pool)
                 .await?
