@@ -5,8 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import tiktoken
 
 def get_jwt_token():
-    # jank. get ur JWT token from postman 
-    # and put it here.
+    # put ur jwt here
     return ''
 
 def delete_all_memories(base_url, user_id):
@@ -21,8 +20,8 @@ def delete_all_memories(base_url, user_id):
     response.raise_for_status()
     return response.json()
 
-def add_memory(base_url, prompt, user_id, id=None):
-    endpoint = f"{base_url}/add_memory_prompt"
+def add_memory(base_url, prompt, id=None):
+    endpoint = f"{base_url}/memory/add_memory_prompt"
     # Prepare the payload
     token = get_jwt_token()
     print("adding memory")
@@ -91,16 +90,7 @@ def count_memory_tokens(memories):
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
     return total_tokens
 
-# Example usage
-# TODO
-'''
-- run the new prompt on users responsible for top 20% traffic
-- log it all
-- read it and determine if memory useful or not
-- use chats & memories to create few-shot examples
-- iterate
 
-'''
 if __name__ == '__main__':
     cwd = os.path.dirname(os.path.realpath(__file__))
     print(cwd)
@@ -118,16 +108,16 @@ if __name__ == '__main__':
                 "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
                 ] 
 
-    user_ids = [user_ids[1]]
-    memory_prompt_id = '99ffa713-b445-40b8-a74c-ad8c1aee2675'
+    user_ids = [user_ids[0]]
+    memory_prompt_id = '4bf7c374-1390-4887-9e5f-bfad6e75bd04'
     for p in os.listdir(os.path.join(cwd, 'prompts')):
         pf = os.path.join(cwd, 'prompts', p)
         with open(pf, 'r') as f:
             prompt = f.read()
-   #         add_memory(base_url, prompt)
+            #add_memory(base_url, prompt)
 
     delete_all_memories(base_url, user_ids[0])
-    max_samples = 500
+    max_samples = 1000
     samples_per_query = 50
     # Use ThreadPoolExecutor to run generate_from_chat concurrently
     with ThreadPoolExecutor(max_workers=10) as executor:

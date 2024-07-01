@@ -422,7 +422,7 @@ async fn process_memory_context(
             actix_web::error::ErrorInternalServerError(e)
         })?;
 
-    let mut generated_memories: Vec<String> = Vec::new();
+    let mut generated_memories: Vec<Memory> = Vec::new();
 
     let futures: Vec<_> = samples.iter().enumerate().map(|(index, sample)| {
         let app_state = app_state.clone();
@@ -433,9 +433,9 @@ async fn process_memory_context(
 
             let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
                 ChatCompletionRequestUserMessageArgs::default()
-                .content(format!("{}\n{}",
-                    sample,
-                    memory_prompt.prompt.clone(), 
+                .content(format!("{}\n\n{}\n\n<reasoning>\n",
+                    memory_prompt.prompt.clone(),
+                    sample
                 ))
                 .build()
                 .map_err(|e| {
@@ -464,6 +464,7 @@ async fn process_memory_context(
                 })?;
             
             info!("Generated memory: {:?}", response.choices.first().unwrap().message.content);
+
             response.choices.first()
                 .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
                 .message.content.clone()
@@ -475,182 +476,25 @@ async fn process_memory_context(
 
     for result in results {
         match result {
-            Ok(content) => generated_memories.push(content),
+            Ok(content) => {
+                let args = json!({
+                    "memory": content
+                }).to_string();
+    
+                let new_memory = call_fn(&app_state.pool, "create_memory", &args, user_id, memory_prompt_id)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to create memory: {:?}", e);
+                        actix_web::error::ErrorInternalServerError(e)
+                    })?;
+
+                generated_memories.push(new_memory[0].clone());
+            }
             Err(e) => error!("Error processing memory: {:?}", e),
         }
     }
-    // info!("Generated memory before saving: {:?}", generate_memories);
 
-    // Log the memory to a file
-    if let Some(log_dir) = log_dir.clone() {
-        log_memory(user_id, samples, &memory_prompt_id.to_string(), &generated_memories, &log_dir, &memory_prompt.prompt.clone(), memory_prompt.example.as_deref())
-            .map_err(|e| {
-                error!("Failed to log memory: {:?}", e);    
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
-    }
+    info!("Generated memories: {}", generated_memories.len());
 
-    info!("Generated memories: {:?}", generated_memories);
-
-    let parse_messages: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestSystemMessageArgs::default()
-            .content("You will be given a numbered list of memories. Your task is to parse these memoreies into an array of individual memories using the `parse_memories` function.")
-            .build()
-            .map_err(|e| {
-                error!("Failed to build system message: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?
-            .into(),
-        ChatCompletionRequestUserMessageArgs::default()
-            .content(
-                generated_memories
-                .iter()
-                .map(|m| {
-                    let collection = m
-                        .split("\"\"\"")
-                        .nth(1)
-                        .unwrap_or("")
-                        .to_string();
-                    format!("{}\n", collection)
-                })
-                .collect::<Vec<String>>()
-                .join("\n"),
-            )
-            .build()
-            .map_err(|e| {
-                error!("Failed to build user message: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?
-            .into(),
-    ];
-
-    let parse_request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-4o")
-        .messages(parse_messages)
-        .tools(vec![
-            ChatCompletionToolArgs::default()
-                .r#type(ChatCompletionToolType::Function)
-                .function(
-                    FunctionObjectArgs::default()
-                        .name("parse_memories")
-                        .description("Parse a bullet list of memories into an array of individual memories.")
-                        .parameters(json!({
-                            "type": "object",
-                            "properties": {
-                                "memories": {
-                                    "type": "array",
-                                    "description": "The resulting array of memories",
-                                    "items": {
-                                        "type": "string",
-                                        "description": "A individual memory."
-                                    }
-                                },
-                            },
-                            "required": ["memories"],
-                        }))
-                        .build()
-                        .map_err(|e| {
-                            error!("Failed to build function: {:?}", e);
-                            actix_web::error::ErrorInternalServerError(e)
-                        })?,
-                )
-                .build()
-                .map_err(|e| {
-                    error!("Failed to build tool: {:?}", e);
-                    actix_web::error::ErrorInternalServerError(e)
-                })?,
-        ])
-        .tool_choice(
-            ChatCompletionToolChoiceOption::Named(
-                ChatCompletionNamedToolChoice {
-                    r#type: ChatCompletionToolType::Function,
-                    function: FunctionName {
-                        name: "parse_memories".to_string(),
-                    },
-                }
-            )
-        )
-        .build()
-        .map_err(|e| {
-            error!("Failed to build chat completion request: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
-
-    let parse_response = app_state.keywords_client
-        .chat()
-        .create(parse_request)
-        .await
-        .map_err(|e| {
-            error!("Failed to get chat completion response: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?
-        .choices
-        .first()
-        .unwrap()
-        .message
-        .clone();
-    // Print the generated memory before saving
-    info!("parsed response, before tool_call: {:?}", parse_response.content);
-
-    match parse_response.tool_calls {
-        Some(tool_calls) => {
-            let mut all_memories = vec![];
-            for tool_call in tool_calls {
-                let name = tool_call.function.name.clone();
-                let args = tool_call.function.arguments.clone();
-
-                let memories = call_fn(&app_state.pool, &name, &args, user_id, memory_prompt_id)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to parse memories: {:?}", e);
-                        actix_web::error::ErrorInternalServerError(e)
-                    })?
-                    .clone();
-                
-                all_memories.extend(memories);
-            }
-            
-            info!("Tool call end, total {} memories", all_memories.len());
-            Ok(all_memories)
-        },
-        None => {
-            warn!("No memories saved.");
-            Ok(vec![])
-        }
-    }
-}
-
-fn log_memory(
-    user_id: &str, 
-    samples: &Vec<String>, 
-    memory_prompt_id: &str, 
-    generated_memories: &Vec<String>, 
-    dir_path: &str,
-    prompt: &str,
-    example: Option<&str>,
-) -> std::io::Result<()> {
-    let log_dir = Path::new(dir_path);
-    if !log_dir.exists() {
-        std::fs::create_dir_all(log_dir)?;
-    }
-
-    let log_file = log_dir.join(format!("{}-{}.txt", user_id, memory_prompt_id));
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(log_file)?;
-
-    writeln!(file, "user_id=\"{}\"", user_id)?;
-    writeln!(file, "memory_prompt_id=\"{}\"", memory_prompt_id)?;
-    writeln!(file, "memory_prompt=\"{}\"", prompt)?;
-    if let Some(example) = example {
-        writeln!(file, "example=\"{}\"", example)?;
-    }
-    for (sample, generated_memory) in samples.iter().zip(generated_memories.iter()) {
-        writeln!(file, "sample=\"{}\"", sample)?;
-        writeln!(file, "generated_memory=\"{}\"", generated_memory)?;
-    }
-    writeln!(file, "\n")?;
-
-    Ok(())
+    Ok(generated_memories)
 }
