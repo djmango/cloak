@@ -31,125 +31,8 @@ use crate::types::{
 };
 use crate::prompts::Prompts;
 use chrono::Utc;
-
-#[allow(dead_code)]
-pub async fn process_memory(
-    pool: &PgPool,
-    user_id: &str,
-    messages: Vec<ChatCompletionRequestMessage>,
-    client: Client<OpenAIConfig>,
-    memory_prompt_id: Uuid,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Fetch all memories for the user
-    let user_memories = Memory::get_all_memories(pool, user_id, Some(memory_prompt_id)).await?;
-    let formatted_memories = Memory::format_memories(user_memories);
-
-    info!("User memories: {}", formatted_memories);
-    info!("Messages: {:?}", messages);
-
-    // Prepare the messages for the AI, including the formatted memories
-    let mut ai_messages = vec![ChatCompletionRequestSystemMessageArgs::default()
-        .content(format!(
-            "You are an AI assistant with access to the following user memories:\n{}",
-            formatted_memories
-        ))
-        .build()?
-        .into()];
-    ai_messages.extend(messages);
-
-    let request = CreateChatCompletionRequestArgs::default()
-        .max_tokens(512u32)
-        .model("claude-3-5-sonnet-20240620")
-        .messages(ai_messages)
-        .tools(vec![
-            ChatCompletionToolArgs::default()
-                .r#type(ChatCompletionToolType::Function)
-                .function(
-                    FunctionObjectArgs::default()
-                        .name("create_memory")
-                        .description("Create a new memory based on the user's input.")
-                        .parameters(json!({
-                            "type": "object",
-                            "properties": {
-                                "memory": {
-                                    "type": "string",
-                                    "description": "The memory content to be stored.",
-                                },
-                            },
-                            "required": ["memory"],
-                        }))
-                        .build()?,
-                )
-                .build()?,
-            ChatCompletionToolArgs::default()
-                .r#type(ChatCompletionToolType::Function)
-                .function(
-                    FunctionObjectArgs::default()
-                        .name("update_memory")
-                        .description("Update an existing memory based on the user's input.")
-                        .parameters(json!({
-                            "type": "object",
-                            "properties": {
-                                "memory_id": {
-                                    "type": "string",
-                                    "description": "The ID of the memory to be updated.",
-                                },
-                                "new_memory": {
-                                    "type": "string",
-                                    "description": "The updated memory content.",
-                                },
-                            },
-                            "required": ["memory_id", "new_memory"],
-                        }))
-                        .build()?,
-                )
-                .build()?,
-            ChatCompletionToolArgs::default()
-                .r#type(ChatCompletionToolType::Function)
-                .function(
-                    FunctionObjectArgs::default()
-                        .name("delete_memory")
-                        .description("Delete a memory based on the memory ID.")
-                        .parameters(json!({
-                            "type": "object",
-                            "properties": {
-                                "memory_id": {
-                                    "type": "string",
-                                    "description": "The ID of the memory to be deleted.",
-                                },
-                            },
-                            "required": ["memory_id"],
-                        }))
-                        .build()?,
-                )
-                .build()?,
-        ])
-        .build()?;
-
-    let response_message = client
-        .chat()
-        .create(request)
-        .await?
-        .choices
-        .first()
-        .unwrap()
-        .message
-        .clone();
-
-    if let Some(tool_calls) = response_message.tool_calls {
-        for tool_call in tool_calls {
-            let name = tool_call.function.name.clone();
-            let args = tool_call.function.arguments.clone();
-
-            call_fn(pool, &name, &args, user_id, memory_prompt_id).await?;
-        }
-    }
-
-    // Return the content of the response message
-    let response_content = response_message.content.unwrap_or_default();
-    info!("Memory response content: {}", response_content);
-    Ok(response_content)
-}
+use moka::future::Cache;
+use std::collections::HashMap;
 
 async fn call_fn(
     pool: &PgPool,
@@ -157,13 +40,14 @@ async fn call_fn(
     args: &str,
     user_id: &str,
     memory_prompt_id: Uuid,
+    memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
 ) -> Result<Vec<Memory>, Box<dyn std::error::Error + Send + Sync>> {
     let function_args: serde_json::Value = args.parse()?;
 
     match name {
         "create_memory" => {
             let memory = function_args["memory"].as_str().unwrap();
-            let new_memory = Memory::add_memory(pool, memory, user_id, Some(memory_prompt_id)).await?;
+            let new_memory = Memory::add_memory(pool, memory, user_id, Some(memory_prompt_id), memory_cache).await?;
             
             Ok(vec![new_memory])
         }
@@ -171,13 +55,13 @@ async fn call_fn(
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
             let new_memory = function_args["new_memory"].as_str().unwrap();
             let updated_memory =
-                Memory::update_memory(pool, memory_id, new_memory, user_id).await?;
+                Memory::update_memory(pool, memory_id, new_memory, user_id, memory_cache).await?;
             
             Ok(vec![updated_memory])
         }
         "delete_memory" => {
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
-            let deleted_memory = Memory::delete_memory(pool, memory_id, user_id).await?;
+            let deleted_memory = Memory::delete_memory(pool, memory_id, user_id, memory_cache).await?;
             
             Ok(vec![deleted_memory])
         }
@@ -188,7 +72,7 @@ async fn call_fn(
 
             for memory in memory_strings {
                 memories.push(
-                    Memory::add_memory(pool, memory.as_str().unwrap(), user_id, Some(memory_prompt_id)).await?
+                    Memory::add_memory(pool, memory.as_str().unwrap(), user_id, Some(memory_prompt_id), memory_cache).await?
                 );
             }
 
@@ -203,9 +87,10 @@ pub async fn get_all_user_memories(
     pool: Arc<PgPool>,
     user_id: &str,
     memory_prompt_id: Option<Uuid>,
+    memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Fetch all memories with a given memory prompt for the user
-    let user_memories = Memory::get_all_memories(&pool, user_id, memory_prompt_id).await?;
+    let user_memories = Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
     Ok(formatted_memories)
@@ -218,7 +103,7 @@ async fn create_memory(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateMemoryRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let memory = Memory::add_memory(&app_state.pool, &req_body.content, &authenticated_user.user_id, req_body.memory_prompt_id)
+    let memory = Memory::add_memory(&app_state.pool, &req_body.content, &authenticated_user.user_id, req_body.memory_prompt_id, &app_state.memory_cache)
         .await
         .map_err(|e| {
             error!("Failed to create memory: {:?}", e);
@@ -235,7 +120,7 @@ async fn get_all_memories(
     authenticated_user: AuthenticatedUser,
     info: web::Query<GetAllMemoriesQuery>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let memories = Memory::get_all_memories(&app_state.pool, &authenticated_user.user_id, info.memory_prompt_id)
+    let memories = Memory::get_all_memories(&app_state.pool, &authenticated_user.user_id, info.memory_prompt_id, &app_state.memory_cache)
         .await
         .map_err(|e| {
             error!("Failed to get memories: {:?}", e);
@@ -253,7 +138,7 @@ async fn update_memory(
     memory_id: web::Path<Uuid>,
     req_body: web::Json<UpdateMemoryRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let memory = Memory::update_memory(&app_state.pool, memory_id.into_inner(), &req_body.content, &authenticated_user.user_id)
+    let memory = Memory::update_memory(&app_state.pool, memory_id.into_inner(), &req_body.content, &authenticated_user.user_id, &app_state.memory_cache)
         .await
         .map_err(|e| {
             error!("Failed to get memories: {:?}", e);
@@ -270,7 +155,7 @@ async fn delete_memory(
     authenticated_user: AuthenticatedUser,
     memory_id: web::Path<Uuid>,
 ) -> Result<impl Responder, actix_web::Error> {
-    Memory::delete_memory(&app_state.pool, memory_id.into_inner(), &authenticated_user.user_id)
+    Memory::delete_memory(&app_state.pool, memory_id.into_inner(), &authenticated_user.user_id, &app_state.memory_cache)
         .await
         .map_err(|e| {
             error!("Failed to get memories: {:?}", e);
@@ -293,7 +178,7 @@ async fn delete_all_memories(
 
     let user_id = req_body.user_id.clone();
 
-    let deleted_count = Memory::delete_all_memories(&app_state.pool, &user_id)
+    let deleted_count = Memory::delete_all_memories(&app_state.pool, &user_id, &app_state.memory_cache)
         .await
         .map_err(|e| {
             error!("Failed to delete all memories: {:?}", e);
@@ -470,7 +355,7 @@ async fn process_memory_context(
             "memory": content
         }).to_string();
 
-        let new_memory = call_fn(&app_state.pool, "create_memory", &args, user_id, memory_prompt_id)
+        let new_memory = call_fn(&app_state.pool, "create_memory", &args, user_id, memory_prompt_id, &app_state.memory_cache)
             .await
             .map_err(|e| {
                 error!("Failed to create memory: {:?}", e);

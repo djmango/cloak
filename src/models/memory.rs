@@ -4,11 +4,13 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
-use tracing::{debug, info};
+use tracing::{debug, info, error};
 use uuid::Uuid;
 use regex::Regex;
 use std::time::Instant;
 use lazy_static::lazy_static;
+use moka::future::Cache;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Memory {
@@ -40,7 +42,7 @@ lazy_static! {
 }
 
 impl Memory {
-    pub async fn add_memory(pool: &PgPool, memory: &str, user_id: &str, prompt_id: Option<Uuid>) -> Result<Self> {
+    pub async fn add_memory(pool: &PgPool, memory: &str, user_id: &str, prompt_id: Option<Uuid>, memory_cache: &Cache<String, HashMap<Uuid, Memory>>) -> Result<Self> {
         let now_utc = Utc::now();
         let memory_id = Uuid::new_v4();
 
@@ -59,6 +61,18 @@ impl Memory {
         .fetch_one(pool)
         .await?;
 
+        // Update the cache with the new memory
+        info!("Updating cache for new memory: {:?}", memory.id);
+        if let Some(user_memories) = memory_cache.get(user_id).await {
+            let mut updated_user_memories = user_memories.clone();
+            updated_user_memories.insert(memory.id, memory.clone());
+            memory_cache.insert(user_id.to_string(), updated_user_memories).await;
+        } else {
+            let mut new_user_memories = HashMap::new();
+            new_user_memories.insert(memory.id, memory.clone());
+            memory_cache.insert(user_id.to_string(), new_user_memories).await;
+        }
+
         debug!("Memory added: {:?}", memory);
         Ok(memory)
     }
@@ -68,6 +82,7 @@ impl Memory {
         memory_id: Uuid,
         new_memory: &str,
         user_id: &str,
+        memory_cache: &Cache<String, HashMap<Uuid, Memory>>
     ) -> Result<Self> {
         let now_utc = Utc::now();
 
@@ -106,27 +121,52 @@ impl Memory {
         .fetch_one(pool)
         .await?;
 
+        info!("Updating cache for memory: {:?}", memory_id);
+        if let Some(user_memories) = memory_cache.get(user_id).await {
+            let mut updated_user_memories = user_memories.clone();
+            updated_user_memories.insert(memory.id, memory.clone());
+            memory_cache.insert(user_id.to_string(), updated_user_memories).await;
+        } else {
+            let mut new_user_memories = HashMap::new();
+            new_user_memories.insert(memory.id, memory.clone());
+            memory_cache.insert(user_id.to_string(), new_user_memories).await;
+        }
+
         debug!("Memory updated: {:?}", memory);
         Ok(memory)
     }
 
-    pub async fn delete_all_memories(pool: &PgPool, user_id: &str) -> Result<i64> {
-        let result = sqlx::query!(
+    pub async fn delete_all_memories(
+        pool: &PgPool,
+        user_id: &str,
+        memory_cache: &Cache<String, HashMap<Uuid, Memory>>
+    ) -> Result<Vec<Uuid>> {
+        let deleted_memories = sqlx::query!(
             "UPDATE memories 
             SET deleted_at = $1
-            WHERE user_id = $2 AND deleted_at IS NULL",
+            WHERE user_id = $2 AND deleted_at IS NULL
+            RETURNING id",
             Utc::now(),
             user_id
         )
-        .execute(pool)
+        .fetch_all(pool)
         .await?;
 
-        let affected_rows = result.rows_affected() as i64;
-        info!("All memories soft-deleted for user: {}. Affected rows: {}", user_id, affected_rows);
-        Ok(affected_rows)
+        let deleted_ids: Vec<Uuid> = deleted_memories.into_iter().map(|row| row.id).collect();
+
+        if let Some(mut user_memories) = memory_cache.get(user_id).await {
+            for id in &deleted_ids {
+                user_memories.remove(id);
+            }
+            memory_cache.insert(user_id.to_string(), user_memories).await;
+            info!("Removed {} deleted memories from cache", deleted_ids.len());
+        }
+
+        info!("All memories soft-deleted for user: {}. Affected rows: {}", user_id, deleted_ids.len());
+        Ok(deleted_ids)
     }
     
-    pub async fn delete_memory(pool: &PgPool, memory_id: Uuid, user_id: &str) -> Result<Memory> {
+    pub async fn delete_memory(pool: &PgPool, memory_id: Uuid, user_id: &str, memory_cache: &Cache<String, HashMap<Uuid, Memory>>) -> Result<Memory> {
         let memory = query_as!(
             Memory,
             r#"
@@ -142,12 +182,36 @@ impl Memory {
         .fetch_one(pool)
         .await?;
 
+        if let Some(mut user_memories) = memory_cache.get(user_id).await {
+            user_memories.remove(&memory_id);
+            memory_cache.insert(user_id.to_string(), user_memories).await;
+            info!("Removed memory {} from cache for user {}", memory_id, user_id);
+        }
+
         debug!("Memory soft-deleted with id: {:?}", memory_id);
         Ok(memory)
     }
 
-    pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Option<Uuid>) -> Result<Vec<Self>> {
+    pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Option<Uuid>, memory_cache: &Cache<String, HashMap<Uuid, Memory>>) -> Result<Vec<Self>> {
         let start = Instant::now();
+        
+        // Try to get memories from cache first
+        if let Some(user_memories) = memory_cache.get(user_id).await {
+            let cached_memories: Vec<Self> = user_memories.values().cloned().collect();
+            let filtered_memories = match memory_prompt_id {
+                Some(prompt_id) => cached_memories.into_iter()
+                    .filter(|memory| memory.memory_prompt_id == Some(prompt_id))
+                    .collect(),
+                None => cached_memories,
+            };
+            
+            let duration = start.elapsed();
+            info!("Query execution time: {:?}", duration);
+            info!("Retrieved {} memories from cache for user: {}", filtered_memories.len(), user_id);
+            return Ok(filtered_memories);
+        }
+
+        // If not in cache, fetch from database
         let result = query_as!(
             Memory,
             r#"
@@ -159,6 +223,13 @@ impl Memory {
         )
         .fetch_all(pool)
         .await?;
+        
+        // Update cache with fetched memories
+        let mut memory_map = HashMap::new();
+        for memory in &result {
+            memory_map.insert(memory.id, memory.clone());
+        }
+        memory_cache.insert(user_id.to_string(), memory_map).await;
         
         debug!("All memories found: {:?}", result);
         let duration = start.elapsed();

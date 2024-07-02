@@ -10,6 +10,10 @@ use sqlx::postgres::PgPool;
 use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
+use moka::future::Cache;
+use crate::models::memory::Memory;
+use uuid::Uuid;
+use std::collections::HashMap;
 
 mod config;
 mod middleware;
@@ -24,6 +28,7 @@ struct AppState {
     pool: PgPool,
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
+    memory_cache: Cache<String, HashMap<Uuid, Memory>>,
 }
 
 #[derive(OpenApi)]
@@ -59,6 +64,13 @@ async fn main(
                 .with_api_base("https://api.keywordsai.co/api"),
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
+        memory_cache: Cache::builder()
+            .max_capacity(1024 * 1024 * 1024) // 1GB limit (in bytes)
+            .weigher(|_key, value: &HashMap<Uuid, Memory>| -> u32 {
+                let estimated_memory_size = 1000; // Assume each Memory object is roughly 1000 bytes
+                (value.len() * estimated_memory_size) as u32
+            })
+            .build(),
     });
 
     let openapi = ApiDoc::openapi();

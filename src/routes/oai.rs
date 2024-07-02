@@ -50,7 +50,7 @@ async fn create_system_prompt(
     start_time: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, actix_web::Error> {
     // Fetch user memories
-    let memories = Memory::get_all_memories(&app_state.pool, user_id, None)
+    let memories = Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
         .await
         .map_err(|e| {
             error!("Failed to get memories: {:?}", e);
@@ -398,17 +398,6 @@ async fn chat(
                                 }
                             };
 
-                            // Process memory
-                            // NOTE: uncomment when enabling memory injection
-                            // info!("Processing memory");
-                            // _ = process_memory(
-                            //     &app_state.pool,
-                            //     &chat.user_id,
-                            //     vec![last_oai_message],
-                            //     client,
-                            //     memory_prompt.id,
-                            // )
-                            // .await;
                         } else {
                             error!("No messages found in request_args.messages");
                         }
