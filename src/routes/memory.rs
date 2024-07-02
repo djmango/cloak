@@ -29,7 +29,7 @@ use crate::types::{
 };
 use crate::prompts::Prompts;
 use chrono::Utc;
-use tiktoken_rs::p50k_base;
+use tiktoken_rs::cl100k_base;
 use moka::future::Cache;
 use std::collections::HashMap;
 
@@ -310,7 +310,8 @@ async fn process_memory_context(
         })?;
 
     let mut generated_memories: Vec<Memory> = Vec::new();
-    let bpe = p50k_base().unwrap();
+    // NOTE: using gpt-4o tokenizer since claude's is not open source
+    let bpe = cl100k_base().unwrap();
 
     let futures: Vec<_> = samples.iter().enumerate().map(|(index, sample)| {
         let app_state = app_state.clone();
