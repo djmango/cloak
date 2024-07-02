@@ -42,7 +42,13 @@ lazy_static! {
 }
 
 impl Memory {
-    pub async fn add_memory(pool: &PgPool, memory: &str, user_id: &str, prompt_id: Option<Uuid>, memory_cache: &Cache<String, HashMap<Uuid, Memory>>) -> Result<Self> {
+    pub async fn add_memory(
+        pool: &PgPool,
+        memory: &str,
+        user_id: &str,
+        prompt_id: Option<Uuid>,
+        memory_cache: &Cache<String, HashMap<Uuid, Memory>>
+    ) -> Result<Self> {
         let now_utc = Utc::now();
         let memory_id = Uuid::new_v4();
 
@@ -62,7 +68,7 @@ impl Memory {
         .await?;
 
         // Update the cache with the new memory
-        info!("Updating cache for new memory: {:?}", memory.id);
+        debug!("Updating cache for new memory: {:?}", memory.id);
         if let Some(user_memories) = memory_cache.get(user_id).await {
             let mut updated_user_memories = user_memories.clone();
             updated_user_memories.insert(memory.id, memory.clone());
@@ -166,7 +172,12 @@ impl Memory {
         Ok(deleted_ids)
     }
     
-    pub async fn delete_memory(pool: &PgPool, memory_id: Uuid, user_id: &str, memory_cache: &Cache<String, HashMap<Uuid, Memory>>) -> Result<Memory> {
+    pub async fn delete_memory(
+        pool: &PgPool,
+        memory_id: Uuid,
+        user_id: &str,
+        memory_cache: &Cache<String, HashMap<Uuid, Memory>>
+    ) -> Result<Memory> {
         let memory = query_as!(
             Memory,
             r#"
@@ -192,7 +203,12 @@ impl Memory {
         Ok(memory)
     }
 
-    pub async fn get_all_memories(pool: &PgPool, user_id: &str, memory_prompt_id: Option<Uuid>, memory_cache: &Cache<String, HashMap<Uuid, Memory>>) -> Result<Vec<Self>> {
+    pub async fn get_all_memories(
+        pool: &PgPool,
+        user_id: &str,
+        memory_prompt_id: Option<Uuid>,
+        memory_cache: &Cache<String, HashMap<Uuid, Memory>>
+    ) -> Result<Vec<Self>> {
         let start = Instant::now();
         
         // Try to get memories from cache first
