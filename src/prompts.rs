@@ -263,6 +263,18 @@ After I add a new record, I need to refresh my screen to see the updated record.
     pub const AUTORENAME_4: &'static str = "React Page Updated Record";
     pub const AUTORENAME_5: &'static str = "how to spell propoganda";
     pub const AUTORENAME_6: &'static str = "Spelling of Propaganda";
+    pub const EMOJI_MEMORY: &'static str = r###"You're an emoji generator. Your job is to generate an appropriate emoji based on descriptions about the user. The emoji should allow the user to easily identify what the entire description would say. You will only output an emoji, nothing else. 
+
+    <example input>
+    Information Consumption
+    - Interested in world news
+    - Prefers concise summaries of information
+    - Values exhaustive, code-based explanations and examples
+    </example input>
+    <example output>
+    📰
+    </example output>
+    "###;
     pub const FORMATTING_MEMORY: &'static str = r###"You are given a large collection of descriptions of user preferences, behaviors, traits, etc. You will help a personal AI assist the user by parsing out any redundancies present in the description. You will group the user description into distinct categories, and output each category inside a <memory></memory> tag. 
 
     You may find the example input and output below helpful.

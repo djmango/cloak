@@ -109,7 +109,7 @@ if __name__ == '__main__':
                 ] 
 
     user_ids = [user_ids[1]]
-    memory_prompt_id = '4bf7c374-1390-4887-9e5f-bfad6e75bd04'
+    memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
     for p in os.listdir(os.path.join(cwd, 'prompts')):
         pf = os.path.join(cwd, 'prompts', p)
         with open(pf, 'r') as f:

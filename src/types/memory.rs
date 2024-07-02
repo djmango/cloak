@@ -6,6 +6,8 @@ use uuid::Uuid;
 pub struct CreateMemoryRequest {
     pub memory_prompt_id: Option<Uuid>,
     pub content: String,
+    pub grouping: Option<String>,
+    pub emoji: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -16,6 +18,8 @@ pub struct GetAllMemoriesQuery {
 #[derive(Deserialize)]
 pub struct UpdateMemoryRequest {
     pub content: String,
+    pub grouping: Option<String>,
+    pub emoji: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]

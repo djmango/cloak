@@ -21,6 +21,8 @@ pub struct Memory {
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub memory_prompt_id: Option<Uuid>,
+    pub grouping: Option<String>,
+    pub emoji: Option<String>
 }
 
 impl Default for Memory {
@@ -33,6 +35,8 @@ impl Default for Memory {
             updated_at: Utc::now(),
             deleted_at: None,
             memory_prompt_id: None,
+            grouping: None,
+            emoji: None
         }
     }
 }
@@ -45,6 +49,8 @@ impl Memory {
     pub async fn add_memory(
         pool: &PgPool,
         memory: &str,
+        grouping: Option<&str>,
+        emoji: Option<&str>,
         user_id: &str,
         prompt_id: Option<Uuid>,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>
@@ -52,17 +58,19 @@ impl Memory {
         let now_utc = Utc::now();
         let memory_id = Uuid::new_v4();
 
-        let new_memory = Memory::new(memory_id, user_id, memory, prompt_id, Some(now_utc));
+        let new_memory = Memory::new(memory_id, user_id, memory, prompt_id, Some(now_utc), grouping, emoji);
 
         let memory = query_as!(
             Memory,
-            "INSERT INTO memories (id, user_id, created_at, updated_at, content, memory_prompt_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+            "INSERT INTO memories (id, user_id, created_at, updated_at, content, memory_prompt_id, grouping, emoji) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
             new_memory.id,
             new_memory.user_id,
             new_memory.created_at,
             new_memory.updated_at,
             new_memory.content,
-            new_memory.memory_prompt_id
+            new_memory.memory_prompt_id,
+            new_memory.grouping,
+            new_memory.emoji
         )
         .fetch_one(pool)
         .await?;
@@ -87,6 +95,8 @@ impl Memory {
         pool: &PgPool,
         memory_id: Uuid,
         new_memory: &str,
+        grouping: Option<&str>,
+        emoji: Option<&str>,
         user_id: &str,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>
     ) -> Result<Self> {
@@ -95,7 +105,7 @@ impl Memory {
         let memory = query_as!(
             Memory,
             r#"
-            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
+            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id, grouping, emoji
             FROM memories 
             WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
             "#,
@@ -108,6 +118,8 @@ impl Memory {
         let updated_memory = Memory {
             content: new_memory.to_string(),
             updated_at: now_utc,
+            grouping: grouping.map(|g| g.to_string()),
+            emoji: emoji.map(|e| e.to_string()),
             ..memory
         };
 
@@ -115,12 +127,14 @@ impl Memory {
             Memory,
             r#"
             UPDATE memories 
-            SET content = $1, updated_at = $2
-            WHERE id = $3 AND user_id = $4 AND deleted_at IS NULL
+            SET content = $1, updated_at = $2, grouping = $3, emoji = $4
+            WHERE id = $5 AND user_id = $6 AND deleted_at IS NULL
             RETURNING *
             "#,
             updated_memory.content,
             updated_memory.updated_at,
+            updated_memory.grouping,
+            updated_memory.emoji,
             updated_memory.id,
             updated_memory.user_id
         )
@@ -231,7 +245,7 @@ impl Memory {
         let result = query_as!(
             Memory,
             r#"
-            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id
+            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id, grouping, emoji
             FROM memories 
             WHERE user_id = $1 AND deleted_at IS NULL
             "#,
@@ -275,7 +289,7 @@ impl Memory {
 }
 
 impl Memory {
-    pub fn new(id: Uuid, user_id: &str, content: &str, prompt_id: Option<Uuid>, created_at: Option<DateTime<Utc>>) -> Self {
+    pub fn new(id: Uuid, user_id: &str, content: &str, prompt_id: Option<Uuid>, created_at: Option<DateTime<Utc>>, grouping: Option<&str>, emoji: Option<&str>) -> Self {
         Memory {
             id,
             user_id: user_id.to_string(),
@@ -283,6 +297,8 @@ impl Memory {
             updated_at: Utc::now(),
             content: content.to_string(),
             memory_prompt_id: prompt_id,
+            grouping: grouping.map(|g| g.to_string()),
+            emoji: emoji.map(|e| e.to_string()),
             ..Default::default()
         }
     }
