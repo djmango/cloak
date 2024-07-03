@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
 
 #[derive(Deserialize)]
 pub struct CreateMemoryRequest {
@@ -28,8 +29,8 @@ pub struct GenerateMemoriesRequest {
     pub memory_prompt_id: Uuid,
     pub max_samples: Option<u32>,
     pub samples_per_query: Option<u32>,
-    pub overlap: Option<u32>,
     pub log_dir: Option<String>,
+    pub begin_from: Option<DateTime<Utc>>
 }
 
 #[derive(Deserialize)]

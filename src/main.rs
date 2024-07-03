@@ -18,6 +18,7 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info};
+use chrono::Utc;
 
 mod config;
 mod middleware;
@@ -79,6 +80,7 @@ async fn main(
 
     let scheduler = JobScheduler::new().await.unwrap();
     let app_state_clone: Arc<AppState> = app_state.clone();
+    let yesterday = Utc::now() - chrono::Duration::days(1);
 
     let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {   
         let app_state: Arc<AppState> = app_state_clone.clone();
@@ -91,7 +93,7 @@ async fn main(
             info!("All users: {:?}", all_users.len());
         
             let mut idx = 0;
-            let batch_size = 50;
+            let batch_size = 100;
 
             while idx < all_users.len() {
                 let user_ids = all_users.iter().map(|user| user.id.clone()).skip(idx).take(batch_size).collect::<Vec<String>>();
@@ -100,15 +102,15 @@ async fn main(
                     let app_state = app_state.clone();
                     let user_id = user_id.clone();
                     let i = i.clone();
-                
+
                     async move {
                         let response = routes::memory::generate_memories_from_chat_history(
                             &web::Data::new(app_state), 
                             &user_id, 
                             &Uuid::parse_str("b66ebb74-09c2-4c67-bf99-52c05e7dbe44").unwrap(), 
                             None, 
-                            None, 
-                            None
+                            None,
+                            Some(yesterday)
                         ).await;
 
                         match response {

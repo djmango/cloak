@@ -29,7 +29,7 @@ use crate::types::{
     DeleteAllMemoriesRequest
 };
 use crate::prompts::Prompts;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use tiktoken_rs::cl100k_base;
 use moka::future::Cache;
 use std::collections::HashMap;
@@ -232,23 +232,43 @@ pub async fn generate_memories_from_chat_history_endpoint(
     let memory_prompt_id = req_body.memory_prompt_id.clone();
 
     generate_memories_from_chat_history(
-        &app_state, &user_id, 
+        &app_state, 
+        &user_id, 
         &memory_prompt_id, 
         req_body.max_samples, 
         req_body.samples_per_query, 
-        req_body.overlap
+        req_body.begin_from
     ).await.map_err(|e| actix_web::error::ErrorInternalServerError(e))
 }
+
 pub async fn generate_memories_from_chat_history(
     app_state: &web::Data<Arc<AppState>>,
     user_id: &str,
     memory_prompt_id: &Uuid,
     max_samples: Option<u32>,
     samples_per_query: Option<u32>,
-    overlap: Option<u32>,
+    begin_from: Option<DateTime<Utc>>
 ) -> Result<web::Json<Vec<Memory>>, Error> {
-    let mut user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id).await?;
- 
+
+    // get most recent message
+    let latest_msg = Message::get_latest_message_by_user_id(&app_state.pool, &user_id).await?;
+
+    // skip users who haven't sent message in last 14 days
+    if let Some(latest_msg) = latest_msg {
+        if let Some(begin_from) = begin_from {
+            if latest_msg.created_at < Utc::now() - chrono::Duration::days(13) {
+                return Err(anyhow::anyhow!("User does not meet requirements for generating memory"));
+            }
+        }
+    }
+
+    let mut user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id, begin_from).await?;
+
+    // skip users with no messages to generate memory for
+    if user_messages.is_empty() {
+        return Err(anyhow::anyhow!("User does not meet requirements for generating memory"));
+    }
+
     let max_samples = match max_samples {
         Some(n) => n,
         None => user_messages.len() as u32
@@ -259,15 +279,10 @@ pub async fn generate_memories_from_chat_history(
         None => 30
     };
 
-    let overlap = match overlap {
-        Some(n) => n,
-        None => 4
-    };
-
     if user_messages.len() as u32 > max_samples {
         user_messages = user_messages.into_iter().take(max_samples as usize).collect();
     }
-
+    
     user_messages.reverse();
 
     let mut generated_samples: Vec<String> = Vec::new();
@@ -296,7 +311,7 @@ pub async fn generate_memories_from_chat_history(
             break;
         }
 
-        start_index += (samples_per_query - overlap) as usize;
+        start_index += samples_per_query as usize;
     }
         
     info!("Generated {} samples", generated_samples.len());
