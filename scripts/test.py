@@ -3,6 +3,7 @@ import uuid
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import tiktoken
+from datetime import datetime, timedelta
 
 def get_jwt_token():
     # put ur jwt here
@@ -49,7 +50,7 @@ def add_memory(base_url, prompt, id=None):
         return None
 
 # Modify this function to include the JWT token
-def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=1000, samples_per_query=30):
+def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=1000, samples_per_query=30, range=None):
     endpoint = f"{base_url}/memory/generate_from_chat"
     # Get JWT token
     token = get_jwt_token()
@@ -69,6 +70,9 @@ def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=100
     
     if samples_per_query is not None:
         payload["samples_per_query"] = samples_per_query
+    
+    if range is not None:
+        payload["range"] = range
 
     headers = {
         "Content-Type": "application/json",
@@ -90,8 +94,60 @@ def count_memory_tokens(memories):
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
     return total_tokens
 
+def test_memory_increment():
+    base_url = "http://localhost:8000"
+    user_id = "user_01HY5EW9Z5XVE34GZXKH4NC2Y1"
+    memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
+    now = datetime.utcnow()
+    
+    # Ensure logs directory exists
+    log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'memory_experiments')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Test case 1: Generate from beginning of time to 14 days ago
+    start_date = datetime.min  # Beginning of time
+    end_date = now - timedelta(days=14)
+    range_payload = [0, int(end_date.timestamp())]
+    response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
+    print(f"Test case 1: {start_date} to {end_date} - {'Success' if response else 'Fail'}")
+    log_response("beginning_to_14_days_ago", response, log_dir)
+    
+    # Test cases 2-15: Generate between ranges
+    for i in range(14):
+        start_date = now - timedelta(days=14-i)
+        end_date = now - timedelta(days=13-i)
+        range_payload = [int(start_date.timestamp()), int(end_date.timestamp())]
+        response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
+        print(f"Test case {i+2}: {start_date} to {end_date} - {'Success' if response else 'Fail'}")
+        log_response(f"range_{14-i}_{13-i}_days_ago", response, log_dir)
+    
+    # Test case 16: Generate for yesterday to now
+    yesterday = now - timedelta(days=1)
+    range_payload = [int(yesterday.timestamp()), int(now.timestamp())]
+    response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
+    print(f"Test case 16: {yesterday} to {now} - {'Success' if response else 'Fail'}")
+    log_response("range_yesterday_to_now", response, log_dir)
+    
+    print("All test cases completed.")
+
+def log_response(test_case, response, log_dir):
+    log_file_path = os.path.join(log_dir, f'{test_case}.log')
+    with open(log_file_path, 'w') as log_file:
+        if response is None:
+            log_file.write(f"Test case: {test_case}\nResponse: None\n")
+        else:
+            log_file.write(f"Test case: {test_case}\nStatus Code: {response.status_code}\n")
+            memories = response.json()
+            for memory in memories:
+                log_file.write(f'{memory["content"]},{memory["grouping"]},{memory["emoji"]}\n')
 
 if __name__ == '__main__':
+    base_url = "http://localhost:8000"
+    test_user = 'user_01HY5EW9Z5XVE34GZXKH4NC2Y1'
+    delete_all_memories(base_url, test_user)
+    test_memory_increment()
+    exit(-1)
+
     cwd = os.path.dirname(os.path.realpath(__file__))
     print(cwd)
     base_url = "http://localhost:8000"

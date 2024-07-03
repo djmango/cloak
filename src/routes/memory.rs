@@ -34,6 +34,8 @@ use tiktoken_rs::cl100k_base;
 use moka::future::Cache;
 use std::collections::HashMap;
 
+use tokio::sync::Semaphore;
+
 async fn call_fn(
     pool: &PgPool,
     name: &str,
@@ -224,30 +226,39 @@ pub async fn generate_memories_from_chat_history_endpoint(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
+
     if !authenticated_user.is_admin() {
         return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
     }
 
     let user_id = req_body.user_id.clone();
     let memory_prompt_id = req_body.memory_prompt_id.clone();
+    let range = req_body.range.map(|(start, end)| {
+        (
+            DateTime::<Utc>::from_timestamp(start as i64, 0).unwrap(),
+            DateTime::<Utc>::from_timestamp(end as i64, 0).unwrap()
+        )
+    });
 
     generate_memories_from_chat_history(
         &app_state, 
+        None,
         &user_id, 
         &memory_prompt_id, 
         req_body.max_samples, 
         req_body.samples_per_query, 
-        req_body.begin_from
+        range
     ).await.map_err(|e| actix_web::error::ErrorInternalServerError(e))
 }
 
 pub async fn generate_memories_from_chat_history(
     app_state: &web::Data<Arc<AppState>>,
+    sem: Option<Arc<Semaphore>>,
     user_id: &str,
     memory_prompt_id: &Uuid,
     max_samples: Option<u32>,
     samples_per_query: Option<u32>,
-    begin_from: Option<DateTime<Utc>>
+    range: Option<(DateTime<Utc>, DateTime<Utc>)>,
 ) -> Result<web::Json<Vec<Memory>>, Error> {
 
     // get most recent message
@@ -255,18 +266,18 @@ pub async fn generate_memories_from_chat_history(
 
     // skip users who haven't sent message in last 14 days
     if let Some(latest_msg) = latest_msg {
-        if let Some(begin_from) = begin_from {
+        if let Some(_) = range {
             if latest_msg.created_at < Utc::now() - chrono::Duration::days(13) {
-                return Err(anyhow::anyhow!("User does not meet requirements for generating memory"));
+                return Err(anyhow::anyhow!("Invalid User: User does not meet requirements for generating memory"));
             }
         }
     }
 
-    let mut user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id, begin_from).await?;
+    let mut user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id, range).await?;
 
     // skip users with no messages to generate memory for
     if user_messages.is_empty() {
-        return Err(anyhow::anyhow!("User does not meet requirements for generating memory"));
+        return Err(anyhow::anyhow!("Invalid User: User does not meet requirements for generating memory"));
     }
 
     let max_samples = match max_samples {
@@ -282,7 +293,7 @@ pub async fn generate_memories_from_chat_history(
     if user_messages.len() as u32 > max_samples {
         user_messages = user_messages.into_iter().take(max_samples as usize).collect();
     }
-    
+
     user_messages.reverse();
 
     let mut generated_samples: Vec<String> = Vec::new();
@@ -316,7 +327,7 @@ pub async fn generate_memories_from_chat_history(
         
     info!("Generated {} samples", generated_samples.len());
 
-    let generated_memories = process_memory_context(&app_state, &user_id, &generated_samples, memory_prompt_id.clone()).await?;
+    let generated_memories = process_memory_context(&app_state, sem, &user_id, &generated_samples, memory_prompt_id.clone()).await?;
 
     Ok(web::Json(generated_memories))
 }
@@ -324,6 +335,7 @@ pub async fn generate_memories_from_chat_history(
 // add memory_metadata
 async fn process_memory_context(
     app_state: &web::Data<Arc<AppState>>,
+    sem: Option<Arc<Semaphore>>,
     user_id: &str,
     samples: &Vec<String>,
     memory_prompt_id: Uuid,
@@ -391,11 +403,14 @@ async fn process_memory_context(
 
     let formatted_content = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &message_content).await?;
 
-    process_formatted_memories(app_state, user_id, &formatted_content, memory_prompt_id).await
+    let formatted_memories = process_formatted_memories( user_id, &formatted_content, memory_prompt_id).await?;
+
+    let existing_memories = Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache).await?;
+
+    increment_memory(app_state, sem, &formatted_memories, &existing_memories).await
 }
 
 async fn process_formatted_memories(
-    app_state: &web::Data<Arc<AppState>>,
     user_id: &str,
     formatted_content: &str,
     memory_prompt_id: Uuid,
@@ -418,43 +433,139 @@ async fn process_formatted_memories(
                     }
                 })
                 .collect();
-            
-            let message_content = format!("{}\n\n{}", 
-                Prompts::EMOJI_MEMORY,
-                grouping
-            );
 
-            let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await?;
-            let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
-
-            for memory in memories {
-                let args = json!({
-                    "memory": memory,
-                    "grouping": grouping,
-                    "emoji": emoji
-                }).to_string();
-
-                let new_memories = call_fn(
-                    &app_state.pool,
-                    "create_memory",
-                    &args,
-                    user_id,
-                    memory_prompt_id,
-                    &app_state.memory_cache,
-                ).await.map_err(|e| {
-                    error!("Failed to create memory: {:?}", e);
-                    e
-                })?;
-
-                let new_memory = new_memories.into_iter().next().unwrap_or_default();
-                inserted_memories.push(new_memory);
-            }
+            inserted_memories.extend(memories.into_iter().map(|memory| Memory::new(
+                Uuid::new_v4(),
+                user_id,
+                &memory,
+                Some(memory_prompt_id),
+                None,
+                Some(&grouping),
+                None
+            )));
         }
     }
 
     Ok(inserted_memories)
 }
 
+async fn increment_memory(
+    app_state: &web::Data<Arc<AppState>>,
+    sem: Option<Arc<Semaphore>>,
+    new_memories: &Vec<Memory>,
+    existing_memories: &Vec<Memory>,
+) -> Result<Vec<Memory>, Error> {
+    // Format memories
+    let formatted_memories = Memory::format_grouped_memories(existing_memories);
+    let prompt = format!(
+        r#"Analyze the following new memories and determine if each belongs to an existing memory grouping, requires a new one, or is redundant.
+
+New Memories:
+{}
+
+Existing Memory Groupings:
+{}
+
+For each new memory, provide your analysis in the following format:
+<filtered memory>
+Content: {{memory content}}
+Reasoning: {{Your step-by-step reasoning here}}
+Verdict: NEW, {{new_grouping_name}} || OLD, {{existing_grouping_name}} || REPEAT
+</filtered memory>
+
+Rules:
+1. If the memory fits into an existing grouping, use "OLD" verdict with the existing grouping name.
+2. If the memory requires a new grouping, use "NEW" verdict with a suggested grouping name. Grouping name should be no more than 2 words, and should be simple, friendly, and human-readable.
+3. If the memory is redundant or too similar to existing memories, use "REPEAT" verdict.
+4. Provide clear reasoning for each decision.
+5. Each content, reasoning, and verdict should be a single line. There should be only one newline that separates each, no more. 
+"#,
+        new_memories.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("\n\n"),
+        formatted_memories
+    );
+
+    info!("Prompt:\n {}", prompt);
+
+    let response = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &prompt).await?;
+
+    info!("AI Response:\n {}", response);
+
+    let memory_regex: regex::Regex = regex::Regex::new(r"(?m)^Content: (.*)$\n^Reasoning:.*$\n^Verdict: (.*)$").unwrap();
+    let mut filtered_memories = Vec::new();
+
+    for (idx, capture) in memory_regex.captures_iter(&response).enumerate() {
+        let content = capture.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+        let verdict = capture.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+
+        info!("Memory {}:\n Content: {},\n Verdict: {}", idx, content, verdict);
+
+        let (verdict_type, grouping) = match verdict.split_once(',') {
+            Some((v, g)) => (v.trim(), g.trim()),
+            None => continue,
+        };
+
+        match verdict_type {
+            "NEW" | "OLD" => {
+                if let Some(memory) = new_memories.iter().find(|m| m.content == content) {
+                    let message_content = format!("{}\n\n{}", 
+                        Prompts::EMOJI_MEMORY,
+                        grouping
+                    );
+
+                    let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await?;
+                    let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
+
+                    let mut new_memory = memory.clone();
+                    new_memory.grouping = Some(grouping.to_string());
+                    new_memory.emoji = Some(emoji);
+                    filtered_memories.push(new_memory);
+                }
+            }
+            "REPEAT" => {
+                continue;
+            }
+            _ => {
+                error!("Invalid verdict type: {}", verdict_type);
+                continue;
+            }
+        }
+    }
+
+    let mut added_memories = Vec::new();
+    for memory in filtered_memories {
+        let args = json!({
+            "memory": memory.content,
+            "grouping": memory.grouping,
+            "emoji": memory.emoji
+        }).to_string();
+
+        // Acquire the semaphore permit if provided
+        let _permit = if let Some(sem) = &sem {
+            Some(sem.acquire().await?)
+        } else {
+            None
+        };
+
+        let new_memories = call_fn(
+            &app_state.pool,
+            "create_memory",
+            &args,
+            &memory.user_id,
+            memory.memory_prompt_id.unwrap_or_default(),
+            &app_state.memory_cache,
+        ).await.map_err(|e| {
+            error!("Failed to create memory: {:?}", e);
+            e
+        })?;
+
+        // The semaphore permit is automatically released here when _permit goes out of scope
+        if let Some(new_memory) = new_memories.into_iter().next() {
+            added_memories.push(new_memory);
+        }
+    }
+
+    Ok(added_memories)
+}
 // Add this utility function at the top of the file, after imports
 async fn get_chat_completion(
     client: &Client<OpenAIConfig>,
@@ -495,3 +606,4 @@ async fn get_chat_completion(
         .message.content.clone()
         .ok_or_else(|| Error::msg("Empty response from AI"))
 }
+

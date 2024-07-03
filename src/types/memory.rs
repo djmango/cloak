@@ -30,7 +30,7 @@ pub struct GenerateMemoriesRequest {
     pub max_samples: Option<u32>,
     pub samples_per_query: Option<u32>,
     pub log_dir: Option<String>,
-    pub begin_from: Option<DateTime<Utc>>
+    pub range: Option<(u32, u32)>
 }
 
 #[derive(Deserialize)]

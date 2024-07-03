@@ -17,6 +17,7 @@ use crate::models::memory::Memory;
 use uuid::Uuid;
 use std::collections::HashMap;
 use tokio_cron_scheduler::{Job, JobScheduler};
+use tokio::sync::Semaphore;
 use tracing::{error, info};
 use chrono::Utc;
 
@@ -80,60 +81,45 @@ async fn main(
 
     let scheduler = JobScheduler::new().await.unwrap();
     let app_state_clone: Arc<AppState> = app_state.clone();
-    let yesterday = Utc::now() - chrono::Duration::days(1);
-
+    let yesterday: chrono::prelude::DateTime<Utc> = Utc::now() - chrono::Duration::days(1);
+    let semaphore = Arc::new(Semaphore::new(1000));
+    // ... existing code ...
     let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {   
         let app_state: Arc<AppState> = app_state_clone.clone();
-
+        let semaphore = semaphore.clone();
         Box::pin(async move {
-            let all_users = User::get_all(
-                &app_state.pool,
-            ).await.unwrap();
-        
+            let all_users = User::get_all(&app_state.pool).await.unwrap();
             info!("All users: {:?}", all_users.len());
-        
-            let mut idx = 0;
-            let batch_size = 100;
 
-            while idx < all_users.len() {
-                let user_ids = all_users.iter().map(|user| user.id.clone()).skip(idx).take(batch_size).collect::<Vec<String>>();
-                
-                let futures: Vec<_> = user_ids.iter().enumerate().map(|(i, user_id)| {
-                    let app_state = app_state.clone();
-                    let user_id = user_id.clone();
-                    let i = i.clone();
+            let futures: Vec<_> = all_users.iter().map(|user| {
+                let app_state = app_state.clone();
+                let user_id = user.id.clone();
+                let semaphore = semaphore.clone();
 
-                    async move {
-                        let response = routes::memory::generate_memories_from_chat_history(
-                            &web::Data::new(app_state), 
-                            &user_id, 
-                            &Uuid::parse_str("b66ebb74-09c2-4c67-bf99-52c05e7dbe44").unwrap(), 
-                            None, 
-                            None,
-                            Some(yesterday)
-                        ).await;
+                async move {
+                    let response = routes::memory::generate_memories_from_chat_history(
+                        &web::Data::new(app_state), 
+                        Some(semaphore),
+                        &user_id, 
+                        &Uuid::parse_str("b66ebb74-09c2-4c67-bf99-52c05e7dbe44").unwrap(), 
+                        None, 
+                        None,
+                        Some((yesterday, Utc::now()))
+                    ).await;
 
-                        match response {
-                            Ok(_res) => {
-                                info!("Memories generated successfully: {:?}", i);
-                            }
-                            Err(e) => {
-                                error!("Error generating memories: {:?}", e);
-                            }
-                        }
+                    match response {
+                        Ok(_) => info!("Memories generated successfully for user: {}", user_id),
+                        Err(e) => error!("Error generating memories for user {}: {:?}", user_id, e),
                     }
-                }).collect();
+                }
+            }).collect();
 
-                join_all(futures).await;
-                idx += batch_size;
-            }
+            join_all(futures).await;
         })
-    })
-    .unwrap();
-
+    }).unwrap();
+    // ... existing code ...
     scheduler.add(job).await.unwrap();
     scheduler.start().await.unwrap();
-
     let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {

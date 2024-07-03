@@ -286,6 +286,33 @@ impl Memory {
         }
         formatted_memories.trim_end().to_string()
     }
+
+    pub fn format_grouped_memories(memories: &Vec<Memory>) -> String {
+        use std::collections::HashMap;
+
+        // Organize memories by grouping
+        let mut grouped_memories: HashMap<String, Vec<String>> = HashMap::new();
+
+        for memory in memories {
+            grouped_memories
+                .entry(memory.grouping.clone().unwrap_or_else(|| "Ungrouped".to_string()))
+                .or_insert_with(Vec::new)
+                .push(memory.content.clone());
+        }
+
+        // Format memories
+        grouped_memories
+            .iter()
+            .map(|(grouping, contents)| {
+                format!(
+                    "<memory>\n{}\n{}\n</memory>",
+                    grouping,
+                    contents.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
 }
 
 impl Memory {

@@ -58,29 +58,8 @@ async fn create_system_prompt(
         })?;
 
     info!("got {} memories", memories.len());
-
-    // Organize memories by grouping
-    let mut grouped_memories: HashMap<String, Vec<String>> = HashMap::new();
-
-    for memory in memories {
-        grouped_memories
-            .entry(memory.grouping.unwrap_or_else(|| "Ungrouped".to_string()))
-            .or_insert_with(Vec::new)
-            .push(memory.content);
-    }
-
     // Format memories
-    let formatted_memories = grouped_memories
-        .iter()
-        .map(|(grouping, contents)| {
-            format!(
-                "<memory>\n{}\n{}\n</memory>",
-                grouping,
-                contents.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let formatted_memories = Memory::format_grouped_memories(&memories);
 
     // Create the system prompt with datetime and memories
     Ok(format!(

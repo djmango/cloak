@@ -1,4 +1,5 @@
 use crate::models::file::{File, Filetype};
+use actix_web::http::header::Date;
 use anyhow::Result;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
@@ -298,27 +299,26 @@ impl Message {
         Ok(message)
     }
 
-    // Get all messages for a given user ID, optionally after a specified time
-    pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str, begin_from: Option<DateTime<Utc>>) -> Result<Vec<Message>> {
-        let query_str = if let Some(_) = begin_from {
-            r#"
+    // Get all messages for a given user ID, optionally within a specified time range
+    pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str, range: Option<(DateTime<Utc>, DateTime<Utc>)>) -> Result<Vec<Message>> {
+        let query_str = match range {
+            Some(_) => r#"
                 SELECT * FROM messages 
-                WHERE user_id = $1 AND created_at > $2
+                WHERE user_id = $1 AND created_at BETWEEN $2 AND $3
                 ORDER BY created_at DESC
-            "#
-        } else {
-            r#"
+            "#,
+            None => r#"
                 SELECT * FROM messages 
                 WHERE user_id = $1
                 ORDER BY created_at DESC
-            "#
+            "#,
         };
 
         let mut query = sqlx::query_as::<_, Message>(query_str)
             .bind(user_id);
 
-        if let Some(start_time) = begin_from {
-            query = query.bind(start_time);
+        if let Some((start_time, end_time)) = range {
+            query = query.bind(start_time).bind(end_time);
         }
 
         let messages = query.fetch_all(pool).await?;
