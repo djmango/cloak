@@ -1,6 +1,7 @@
 // routes/memory.rs
 
 use actix_web::{post, get, put, delete, web, HttpResponse, Responder};
+use anyhow::Error;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::memory::Memory;
 use crate::models::{MemoryPrompt, Message};
@@ -14,7 +15,7 @@ use async_openai::Client;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{info, error};
 use uuid::Uuid;
 use futures::future::join_all;
 use crate::AppState;
@@ -40,7 +41,7 @@ async fn call_fn(
     user_id: &str,
     memory_prompt_id: Uuid,
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
-) -> Result<Vec<Memory>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<Memory>, Error> {
     let function_args: serde_json::Value = args.parse()?;
 
     match name {
@@ -69,7 +70,6 @@ async fn call_fn(
             Ok(vec![deleted_memory])
         }
         "parse_memories" => {
-            // info!("Function args: {:?}", function_args);
             let memory_strings = function_args["memories"].as_array().unwrap();
             let mut memories: Vec<Memory> = Vec::new();
 
@@ -81,7 +81,7 @@ async fn call_fn(
 
             Ok(memories)
         }
-        _ => Err("Unknown function".into()),
+        _ => Err(Error::msg("Unknown function")),
     }
 }
 
@@ -91,7 +91,7 @@ pub async fn get_all_user_memories(
     user_id: &str,
     memory_prompt_id: Option<Uuid>,
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<String, Error> {
     // Fetch all memories with a given memory prompt for the user
     let user_memories = Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await?;
     let formatted_memories = Memory::format_memories(user_memories);
@@ -218,37 +218,48 @@ async fn add_memory_prompt(
 }
 
 #[post("/generate_from_chat")]
-async fn generate_memories_from_chat_history(
+pub async fn generate_memories_from_chat_history_endpoint(
     app_state: web::Data<Arc<AppState>>,
     _app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
-
     if !authenticated_user.is_admin() {
         return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
     }
 
     let user_id = req_body.user_id.clone();
+    let memory_prompt_id = req_body.memory_prompt_id.clone();
 
-    let mut user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to get user messages: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-    })?;
+    generate_memories_from_chat_history(
+        &app_state, &user_id, 
+        &memory_prompt_id, 
+        req_body.max_samples, 
+        req_body.samples_per_query, 
+        req_body.overlap
+    ).await.map_err(|e| actix_web::error::ErrorInternalServerError(e))
+}
+pub async fn generate_memories_from_chat_history(
+    app_state: &web::Data<Arc<AppState>>,
+    user_id: &str,
+    memory_prompt_id: &Uuid,
+    max_samples: Option<u32>,
+    samples_per_query: Option<u32>,
+    overlap: Option<u32>,
+) -> Result<web::Json<Vec<Memory>>, Error> {
+    let mut user_messages = Message::get_messages_by_user_id(&app_state.pool, &user_id).await?;
  
-    let max_samples = match req_body.max_samples {
+    let max_samples = match max_samples {
         Some(n) => n,
         None => user_messages.len() as u32
     };
 
-    let samples_per_query = match req_body.samples_per_query {
+    let samples_per_query = match samples_per_query {
         Some(n) => n,
         None => 30
     };
 
-    let overlap = match req_body.overlap {
+    let overlap = match overlap {
         Some(n) => n,
         None => 4
     };
@@ -290,7 +301,7 @@ async fn generate_memories_from_chat_history(
         
     info!("Generated {} samples", generated_samples.len());
 
-    let generated_memories = process_memory_context(&app_state, &user_id, &generated_samples, req_body.memory_prompt_id).await?;
+    let generated_memories = process_memory_context(&app_state, &user_id, &generated_samples, memory_prompt_id.clone()).await?;
 
     Ok(web::Json(generated_memories))
 }
@@ -301,12 +312,12 @@ async fn process_memory_context(
     user_id: &str,
     samples: &Vec<String>,
     memory_prompt_id: Uuid,
-) -> Result<Vec<Memory>, actix_web::Error> {
+) -> Result<Vec<Memory>, Error> {
     let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
         .await
         .map_err(|e| {
             error!("Failed to get memory prompt: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
+            e
         })?;
 
     let mut generated_memories: Vec<Memory> = Vec::new();
@@ -341,7 +352,7 @@ async fn process_memory_context(
         }
     }).collect();
 
-    let results: Vec<Result<String, actix_web::Error>> = join_all(futures).await;
+    let results: Vec<Result<String, Error>> = join_all(futures).await;
     for result in results {
         match result {
             Ok(result_content) => {
@@ -373,7 +384,7 @@ async fn process_formatted_memories(
     user_id: &str,
     formatted_content: &str,
     memory_prompt_id: Uuid,
-) -> Result<Vec<Memory>, actix_web::Error> {
+) -> Result<Vec<Memory>, Error> {
     let memory_regex = regex::Regex::new(r"(?s)<memory>(.*?)</memory>").unwrap();
     let mut inserted_memories = Vec::new();
 
@@ -417,7 +428,7 @@ async fn process_formatted_memories(
                     &app_state.memory_cache,
                 ).await.map_err(|e| {
                     error!("Failed to create memory: {:?}", e);
-                    actix_web::error::ErrorInternalServerError(e)
+                    e
                 })?;
 
                 let new_memory = new_memories.into_iter().next().unwrap_or_default();
@@ -434,14 +445,14 @@ async fn get_chat_completion(
     client: &Client<OpenAIConfig>,
     model: &str,
     content: &str,
-) -> Result<String, actix_web::Error> {
+) -> Result<String, Error> {
     let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
         ChatCompletionRequestUserMessageArgs::default()
             .content(content)
             .build()
             .map_err(|e| {
                 error!("Failed to build user message: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
+                e
             })?
             .into(),
     ];
@@ -452,7 +463,7 @@ async fn get_chat_completion(
         .build()
         .map_err(|e| {
             error!("Failed to build chat completion request: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
+            e
         })?;
 
     let response = client
@@ -461,11 +472,11 @@ async fn get_chat_completion(
         .await
         .map_err(|e| {
             error!("Failed to get chat completion response: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
+            e
         })?;
 
     response.choices.first()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("No response from AI"))?
+        .ok_or_else(|| Error::msg("No response from AI"))?
         .message.content.clone()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Empty response from AI"))
+        .ok_or_else(|| Error::msg("Empty response from AI"))
 }
