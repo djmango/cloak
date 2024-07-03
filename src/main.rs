@@ -3,6 +3,8 @@ use actix_web::middleware::Logger;
 use actix_web::web;
 use async_openai::{config::OpenAIConfig, Client};
 use config::AppConfig;
+use futures::future::join_all;
+use models::User;
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
@@ -14,6 +16,8 @@ use moka::future::Cache;
 use crate::models::memory::Memory;
 use uuid::Uuid;
 use std::collections::HashMap;
+use tokio_cron_scheduler::{Job, JobScheduler};
+use tracing::{error, info};
 
 mod config;
 mod middleware;
@@ -73,6 +77,61 @@ async fn main(
             .build(),
     });
 
+    let scheduler = JobScheduler::new().await.unwrap();
+    let app_state_clone: Arc<AppState> = app_state.clone();
+
+    let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {   
+        let app_state: Arc<AppState> = app_state_clone.clone();
+
+        Box::pin(async move {
+            let all_users = User::get_all(
+                &app_state.pool,
+            ).await.unwrap();
+        
+            info!("All users: {:?}", all_users.len());
+        
+            let mut idx = 0;
+            let batch_size = 50;
+
+            while idx < all_users.len() {
+                let user_ids = all_users.iter().map(|user| user.id.clone()).skip(idx).take(batch_size).collect::<Vec<String>>();
+                
+                let futures: Vec<_> = user_ids.iter().enumerate().map(|(i, user_id)| {
+                    let app_state = app_state.clone();
+                    let user_id = user_id.clone();
+                    let i = i.clone();
+                
+                    async move {
+                        let response = routes::memory::generate_memories_from_chat_history(
+                            &web::Data::new(app_state), 
+                            &user_id, 
+                            &Uuid::parse_str("b66ebb74-09c2-4c67-bf99-52c05e7dbe44").unwrap(), 
+                            None, 
+                            None, 
+                            None
+                        ).await;
+
+                        match response {
+                            Ok(_res) => {
+                                info!("Memories generated successfully: {:?}", i);
+                            }
+                            Err(e) => {
+                                error!("Error generating memories: {:?}", e);
+                            }
+                        }
+                    }
+                }).collect();
+
+                join_all(futures).await;
+                idx += batch_size;
+            }
+        })
+    })
+    .unwrap();
+
+    scheduler.add(job).await.unwrap();
+    scheduler.start().await.unwrap();
+
     let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {
@@ -119,7 +178,7 @@ async fn main(
                 )
                 .service(
                     web::scope("/memory")
-                        .service(routes::memory::generate_memories_from_chat_history)
+                        .service(routes::memory::generate_memories_from_chat_history_endpoint)
                         .service(routes::memory::add_memory_prompt)
                         .service(routes::memory::create_memory)
                         .service(routes::memory::get_all_memories)
