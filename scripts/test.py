@@ -101,7 +101,7 @@ def test_memory_increment():
     now = datetime.utcnow()
     
     # Ensure logs directory exists
-    log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'memory_experiments')
+    log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')
     os.makedirs(log_dir, exist_ok=True)
     
     # Test case 1: Generate from beginning of time to 14 days ago
