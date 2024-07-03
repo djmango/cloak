@@ -277,6 +277,9 @@ After I add a new record, I need to refresh my screen to see the updated record.
     "###;
     pub const FORMATTING_MEMORY: &'static str = r###"You are given a large collection of descriptions of user preferences, behaviors, traits, etc. You will help a personal AI assist the user by parsing out any redundancies present in the description. You will group the user description into distinct categories, and output each category inside a <memory></memory> tag. 
 
+    Stylistic Rules:
+    - The category names will be read by human users as well. Therefore, category names should be friendly, human-readable (max 2 words), and minimalistic. 
+    
     You may find the example input and output below helpful.
     
     <example>
@@ -339,7 +342,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     
     <output>
     <memory>
-    Technical Expertise
+    Expertise
     - Advanced Rust programmer, experienced in web development and AI systems
     - Proficient in Swift and SwiftUI, specializing in macOS and iOS development
     - Knowledgeable in git and software development processes
@@ -348,7 +351,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </memory>
     
     <memory>
-    Current Projects
+    Projects
     - Developing a memory generation system for an AI application
     - Creating a SwiftUI/macOS application with custom window management
     - Implementing a complex chat application with branching conversations
@@ -358,7 +361,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </memory>
     
     <memory>
-    Interests and Technical Focus
+    Interests
     - Low-level window behavior and event handling in macOS
     - UI/UX development, particularly interactive components like hover states
     - Exploring capabilities of AI models, specifically Claude Sonnet 3.5 and GPT-4 with vision
@@ -366,18 +369,17 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </memory>
     
     <memory>
-    Communication and Interaction Style
+    Communication Style
     - Prefers brief, concise responses and may not engage in lengthy conversations
     - Communicates casually and directly, often using abbreviated language
     - Frequently inputs random strings of characters or short, meaningless messages
     - Tends to start conversations with casual greetings like "hello" or "what's up"
     - Does not typically respond to requests for clarification
     - Demonstrates persistence in interaction, continuing to send messages despite receiving explanations about unclear inputs
-    - May use British/Australian slang
     </memory>
     
     <memory>
-    Problem-Solving and Learning Preferences
+    Learning Preferences
     - Values detailed, technical explanations and robust error handling in code
     - Prefers structured, step-by-step explanations for debugging or information
     - Detail-oriented and seeks rigorous, well-thought-out solutions
@@ -385,17 +387,10 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </memory>
     
     <memory>
-    Specific Technical Challenges
+    Specific Challenges
     - Encountering errors related to the format of image data in AI model projects
     - Facing compilation errors due to type mismatches and missing fields after adding new fields to Rust structs
     - Seeking advice on specific UI/UX implementation challenges in SwiftUI
-    </memory>
-    
-    <memory>
-    Behavioral Patterns
-    - Appears to be testing or exploring AI system capabilities through various inputs
-    - Maintains a consistent behavior pattern throughout conversations
-    - Shows interest in technical topics, particularly related to AI models and programming
     </memory>
     </output> 
     
