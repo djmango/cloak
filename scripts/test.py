@@ -1,8 +1,10 @@
 import requests
 import uuid
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
 import tiktoken
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 def get_jwt_token():
@@ -94,41 +96,66 @@ def count_memory_tokens(memories):
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
     return total_tokens
 
-def test_memory_increment():
-    base_url = "http://localhost:8000"
-    user_id = "user_01HY5EW9Z5XVE34GZXKH4NC2Y1"
-    memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
+def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=7):
     now = datetime.utcnow()
-    
     # Ensure logs directory exists
     log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')
     os.makedirs(log_dir, exist_ok=True)
     
-    # Test case 1: Generate from beginning of time to 14 days ago
+    # Test case 1: Generate from beginning of time to 'days_back' days ago
     start_date = datetime.min  # Beginning of time
-    end_date = now - timedelta(days=14)
+    end_date = now - timedelta(days=days_back)
     range_payload = [0, int(end_date.timestamp())]
     response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
     print(f"Test case 1: {start_date} to {end_date} - {'Success' if response else 'Fail'}")
-    log_response("beginning_to_14_days_ago", response, log_dir)
+    log_response(f"beginning_to_{days_back}_days_ago", response, log_dir)
     
-    # Test cases 2-15: Generate between ranges
-    for i in range(14):
-        start_date = now - timedelta(days=14-i)
-        end_date = now - timedelta(days=13-i)
+    # Test cases 2 to days_back+1: Generate between ranges
+    for i in range(days_back):
+        start_date = now - timedelta(days=days_back-i)
+        end_date = now - timedelta(days=days_back-1-i)
         range_payload = [int(start_date.timestamp()), int(end_date.timestamp())]
         response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
         print(f"Test case {i+2}: {start_date} to {end_date} - {'Success' if response else 'Fail'}")
-        log_response(f"range_{14-i}_{13-i}_days_ago", response, log_dir)
+        log_response(f"range_{days_back-i}_{days_back-1-i}_days_ago", response, log_dir)
     
-    # Test case 16: Generate for yesterday to now
+    # Test case days_back+2: Generate for yesterday to now
     yesterday = now - timedelta(days=1)
     range_payload = [int(yesterday.timestamp()), int(now.timestamp())]
     response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
-    print(f"Test case 16: {yesterday} to {now} - {'Success' if response else 'Fail'}")
+    print(f"Test case {days_back+2}: {yesterday} to {now} - {'Success' if response else 'Fail'}")
     log_response("range_yesterday_to_now", response, log_dir)
     
     print("All test cases completed.")
+
+def get_all(base_url, user_id, memory_prompt_id=None, format=False):
+    endpoint = f"{base_url}/memory/get_all"
+    token = get_jwt_token()
+    params = {"user_id": user_id}  # Add user_id to the params
+    if memory_prompt_id:
+        params["memory_prompt_id"] = str(memory_prompt_id)
+    if format:
+        params["format"] = "true"
+    
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+    try:
+        response = requests.get(endpoint, params=params, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        # Write result to file
+        log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')
+        os.makedirs(log_dir, exist_ok=True)
+        file_path = os.path.join(log_dir, f"{user_id}_memory.txt")
+        
+        with open(file_path, 'w') as f:
+            json.dump(result, f, indent=2)
+        
+        return result
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred: {e}")
+        return None
 
 def log_response(test_case, response, log_dir):
     log_file_path = os.path.join(log_dir, f'{test_case}.log')
@@ -143,9 +170,14 @@ def log_response(test_case, response, log_dir):
 
 if __name__ == '__main__':
     base_url = "http://localhost:8000"
-    test_user = 'user_01HY5EW9Z5XVE34GZXKH4NC2Y1'
-    delete_all_memories(base_url, test_user)
-    test_memory_increment()
+    user_ids = ['user_01HRBJ8FVP3JT28DEWXN6JPKF5', 'user_01HY5EW9Z5XVE34GZXKH4NC2Y1']
+    memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
+    for user_id in user_ids:
+        delete_all_memories(base_url, user_id)
+        test_memory_increment(base_url, user_id, memory_prompt_id)
+        print(f'getting mem for {user_id}')
+        final_mem = get_all(base_url, user_id, format=True)
+        print(final_mem)
     exit(-1)
 
     cwd = os.path.dirname(os.path.realpath(__file__))

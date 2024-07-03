@@ -125,13 +125,19 @@ async fn get_all_memories(
     authenticated_user: AuthenticatedUser,
     info: web::Query<GetAllMemoriesQuery>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let memories = Memory::get_all_memories(&app_state.pool, &authenticated_user.user_id, info.memory_prompt_id, &app_state.memory_cache)
+    let memories = Memory::get_all_memories(&app_state.pool, &info.user_id, info.memory_prompt_id, &app_state.memory_cache)
         .await
         .map_err(|e| {
             error!("Failed to get memories: {:?}", e);
             actix_web::error::ErrorInternalServerError(e)
         })?;
-
+    
+    if let Some(format) = info.format {
+        if format {
+            let formatted_memories = Memory::format_grouped_memories(&memories);
+            return Ok(HttpResponse::Ok().json(formatted_memories));
+        }
+    }
     Ok(HttpResponse::Ok().json(memories))
 }
 
@@ -407,7 +413,9 @@ async fn process_memory_context(
 
     let existing_memories = Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache).await?;
 
-    increment_memory(app_state, sem, &formatted_memories, &existing_memories).await
+    // if no existing memories, skip
+
+    increment_memory(app_state, user_id, memory_prompt_id, sem, &formatted_memories, &existing_memories).await
 }
 
 async fn process_formatted_memories(
@@ -451,10 +459,50 @@ async fn process_formatted_memories(
 
 async fn increment_memory(
     app_state: &web::Data<Arc<AppState>>,
+    user_id: &str,
+    memory_prompt_id: Uuid,
     sem: Option<Arc<Semaphore>>,
     new_memories: &Vec<Memory>,
     existing_memories: &Vec<Memory>,
 ) -> Result<Vec<Memory>, Error> {
+
+    // If no existing memories, directly add new memories to the database
+    if existing_memories.is_empty() {
+        let mut added_memories = Vec::new();
+        for memory in new_memories {
+            let args = json!({
+                "memory": memory.content,
+                "grouping": memory.grouping,
+                "emoji": memory.emoji
+            }).to_string();
+
+            // Acquire the semaphore permit if provided
+            let _permit = if let Some(sem) = &sem {
+                Some(sem.acquire().await?)
+            } else {
+                None
+            };
+
+            let new_memories = call_fn(
+                &app_state.pool,
+                "create_memory",
+                &args,
+                &memory.user_id,
+                memory.memory_prompt_id.unwrap_or_default(),
+                &app_state.memory_cache,
+            ).await.map_err(|e| {
+                error!("Failed to create memory: {:?}", e);
+                e
+            })?;
+
+            // The semaphore permit is automatically released here when _permit goes out of scope
+            if let Some(new_memory) = new_memories.into_iter().next() {
+                added_memories.push(new_memory);
+            }
+        }
+        return Ok(added_memories);
+    }
+
     // Format memories
     let formatted_memories = Memory::format_grouped_memories(existing_memories);
     let prompt = format!(
@@ -495,7 +543,6 @@ Rules:
 
     let futures: Vec<_> = memory_regex.captures_iter(&response).enumerate().map(|(idx, capture)| {
         let app_state = app_state.clone();
-        let new_memories = new_memories.clone();
         let content_regex = content_regex.clone();
         let verdict_regex = verdict_regex.clone();
 
@@ -527,23 +574,53 @@ Rules:
             };
 
             match verdict_type {
-                "NEW" | "OLD" => {
-                    if let Some(memory) = new_memories.iter().find(|m| m.content == content) {
+                "NEW" => {
+                    let message_content = format!("{}\n\n{}", 
+                        Prompts::EMOJI_MEMORY,
+                        grouping
+                    );
+
+                    let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await.ok()?;
+                    let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
+
+                    let new_memory = Memory::new(
+                        Uuid::new_v4(),
+                        user_id,
+                        content,
+                        Some(memory_prompt_id),
+                        None,
+                        Some(grouping),
+                        Some(&emoji)
+                    );
+                    Some(new_memory)
+                }
+                "OLD" => {
+                    let existing_emoji = app_state.memory_cache.get(user_id).await
+                        .and_then(|user_memories| user_memories.values()
+                            .find(|m| m.grouping.as_deref() == Some(grouping))
+                            .and_then(|m| m.emoji.clone()));
+
+                    let emoji = if let Some(emoji) = existing_emoji {
+                        emoji
+                    } else {
                         let message_content = format!("{}\n\n{}", 
                             Prompts::EMOJI_MEMORY,
                             grouping
                         );
-
                         let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await.ok()?;
-                        let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
+                        emoji_response.trim().chars().next().unwrap_or('📝').to_string()
+                    };
 
-                        let mut new_memory = memory.clone();
-                        new_memory.grouping = Some(grouping.to_string());
-                        new_memory.emoji = Some(emoji);
-                        Some(new_memory)
-                    } else {
-                        None
-                    }
+                    let new_memory = Memory::new(
+                        Uuid::new_v4(),
+                        user_id,
+                        content,
+                        Some(memory_prompt_id),
+                        None,
+                        Some(grouping),
+                        Some(&emoji)
+                    );
+                    Some(new_memory)
                 }
                 "REPEAT" => None,
                 _ => {

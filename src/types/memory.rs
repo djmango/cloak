@@ -13,7 +13,9 @@ pub struct CreateMemoryRequest {
 
 #[derive(Deserialize)]
 pub struct GetAllMemoriesQuery {
+    pub user_id: String,
     pub memory_prompt_id: Option<Uuid>,
+    pub format: Option<bool>
 }
 
 #[derive(Deserialize)]
