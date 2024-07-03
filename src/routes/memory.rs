@@ -489,48 +489,72 @@ Rules:
     let response = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &prompt).await?;
 
     info!("AI Response:\n {}", response);
+    let memory_regex = regex::Regex::new(r"(?s)<filtered memory>(.*?)</filtered memory>").unwrap();
+    let content_regex = regex::Regex::new(r"Content:\s*(.+)").unwrap();
+    let verdict_regex = regex::Regex::new(r"Verdict:\s*(.+)").unwrap();
 
-    let memory_regex: regex::Regex = regex::Regex::new(r"(?m)^Content: (.*)$\n^Reasoning:.*$\n^Verdict: (.*)$").unwrap();
-    let mut filtered_memories = Vec::new();
+    let futures: Vec<_> = memory_regex.captures_iter(&response).enumerate().map(|(idx, capture)| {
+        let app_state = app_state.clone();
+        let new_memories = new_memories.clone();
+        let content_regex = content_regex.clone();
+        let verdict_regex = verdict_regex.clone();
 
-    for (idx, capture) in memory_regex.captures_iter(&response).enumerate() {
-        let content = capture.get(1).map(|m| m.as_str().trim()).unwrap_or("");
-        let verdict = capture.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+        async move {
+            let memory_block = capture.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+            
+            let content = content_regex.captures(memory_block)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().trim())
+                .unwrap_or("");
 
-        info!("Memory {}:\n Content: {},\n Verdict: {}", idx, content, verdict);
+            let verdict = verdict_regex.captures(memory_block)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().trim())
+                .unwrap_or("");
 
-        let (verdict_type, grouping) = match verdict.split_once(',') {
-            Some((v, g)) => (v.trim(), g.trim()),
-            None => continue,
-        };
+            info!("Memory {}:\n Content: {},\n Verdict: {}", idx, content, verdict);
 
-        match verdict_type {
-            "NEW" | "OLD" => {
-                if let Some(memory) = new_memories.iter().find(|m| m.content == content) {
-                    let message_content = format!("{}\n\n{}", 
-                        Prompts::EMOJI_MEMORY,
-                        grouping
-                    );
+            let (verdict_type, grouping) = match verdict.split_once(',') {
+                Some((v, g)) => (v.trim(), g.trim()),
+                None => {
+                    if verdict == "REPEAT" {
+                        ("REPEAT", "")
+                    } else {
+                        error!("Invalid verdict format: {}", verdict);
+                        return None;
+                    }
+                },
+            };
 
-                    let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await?;
-                    let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
+            match verdict_type {
+                "NEW" | "OLD" => {
+                    if let Some(memory) = new_memories.iter().find(|m| m.content == content) {
+                        let message_content = format!("{}\n\n{}", 
+                            Prompts::EMOJI_MEMORY,
+                            grouping
+                        );
 
-                    let mut new_memory = memory.clone();
-                    new_memory.grouping = Some(grouping.to_string());
-                    new_memory.emoji = Some(emoji);
-                    filtered_memories.push(new_memory);
+                        let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await.ok()?;
+                        let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
+
+                        let mut new_memory = memory.clone();
+                        new_memory.grouping = Some(grouping.to_string());
+                        new_memory.emoji = Some(emoji);
+                        Some(new_memory)
+                    } else {
+                        None
+                    }
+                }
+                "REPEAT" => None,
+                _ => {
+                    error!("Invalid verdict type: {}", verdict_type);
+                    None
                 }
             }
-            "REPEAT" => {
-                continue;
-            }
-            _ => {
-                error!("Invalid verdict type: {}", verdict_type);
-                continue;
-            }
         }
-    }
+    }).collect();
 
+    let filtered_memories: Vec<Memory> = join_all(futures).await.into_iter().filter_map(|result| result).collect();
     let mut added_memories = Vec::new();
     for memory in filtered_memories {
         let args = json!({
