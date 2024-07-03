@@ -468,38 +468,51 @@ async fn increment_memory(
 
     // If no existing memories, directly add new memories to the database
     if existing_memories.is_empty() {
-        let mut added_memories = Vec::new();
-        for memory in new_memories {
-            let args = json!({
-                "memory": memory.content,
-                "grouping": memory.grouping,
-                "emoji": memory.emoji
-            }).to_string();
+        let futures: Vec<_> = new_memories.iter().map(|memory| {
+            let app_state = app_state.clone();
+            let sem = sem.clone();
 
-            // Acquire the semaphore permit if provided
-            let _permit = if let Some(sem) = &sem {
-                Some(sem.acquire().await?)
-            } else {
-                None
-            };
+            async move {
+                let message_content = format!("{}\n\n{}", 
+                    Prompts::EMOJI_MEMORY,
+                    memory.grouping.clone().unwrap_or_default()
+                );
 
-            let new_memories = call_fn(
-                &app_state.pool,
-                "create_memory",
-                &args,
-                &memory.user_id,
-                memory.memory_prompt_id.unwrap_or_default(),
-                &app_state.memory_cache,
-            ).await.map_err(|e| {
-                error!("Failed to create memory: {:?}", e);
-                e
-            })?;
+                let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await.ok();
+                let emoji = emoji_response.and_then(|response| response.trim().chars().next()).unwrap_or('📝').to_string();
 
-            // The semaphore permit is automatically released here when _permit goes out of scope
-            if let Some(new_memory) = new_memories.into_iter().next() {
-                added_memories.push(new_memory);
+                let args = json!({
+                    "memory": memory.content,
+                    "grouping": memory.grouping,
+                    "emoji": emoji
+                }).to_string();
+
+                // Acquire the semaphore permit if provided
+                let _permit = if let Some(sem) = &sem {
+                    Some(sem.acquire().await?)
+                } else {
+                    None
+                };
+
+                call_fn(
+                    &app_state.pool,
+                    "create_memory",
+                    &args,
+                    &memory.user_id,
+                    memory.memory_prompt_id.unwrap_or_default(),
+                    &app_state.memory_cache,
+                ).await.map_err(|e| {
+                    error!("Failed to create memory: {:?}", e);
+                    e
+                })
             }
-        }
+        }).collect();
+
+        let results = futures::future::join_all(futures).await;
+        let added_memories: Vec<Memory> = results.into_iter()
+            .filter_map(|result| result.ok())
+            .flat_map(|new_memories| new_memories.into_iter().next())
+            .collect();
         return Ok(added_memories);
     }
 
