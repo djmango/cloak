@@ -390,7 +390,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     - Seeking advice on specific UI/UX implementation challenges in SwiftUI
     </memory>
     </output> 
-    
+    </example>
     "###;
 
     pub const INCREMENT_MEMORY: &'static str = r###"<instruction>

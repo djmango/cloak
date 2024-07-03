@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub stripe_secret_key: String,
     pub loops_api_key: String,
     pub workos_webhook_signature: String,
+    pub anthropic_api_key: String,
+    pub laminar_api_key: String,
 }
 
 impl AppConfig {
@@ -63,6 +65,14 @@ impl AppConfig {
             .get("WORKOS_WEBHOOK_SIGNATURE")
             .ok_or_else(|| anyhow!("WORKOS_WEBHOOK_SIGNATURE not found"))?;
 
+        let anthropic_api_key = secret_store
+            .get("ANTHROPIC_API_KEY")
+            .ok_or_else(|| anyhow!("ANTHROPIC_API_KEY not found"))?;
+
+        let laminar_api_key = secret_store
+            .get("LAMINAR_API_KEY")
+            .ok_or_else(|| anyhow!("LAMINAR_API_KEY not found"))?;
+
         Ok(AppConfig {
             db_connection_uri: db_connection_string,
             keywords_api_key,
@@ -75,6 +85,8 @@ impl AppConfig {
             stripe_secret_key,
             loops_api_key,
             workos_webhook_signature,
+            anthropic_api_key,
+            laminar_api_key,
         })
     }
 }

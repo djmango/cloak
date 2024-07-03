@@ -21,12 +21,7 @@ use futures::future::join_all;
 use crate::AppState;
 use crate::AppConfig;
 use crate::types::{
-    AddMemoryPromptRequest, 
-    CreateMemoryRequest, 
-    GenerateMemoriesRequest, 
-    GetAllMemoriesQuery, 
-    UpdateMemoryRequest, 
-    DeleteAllMemoriesRequest
+    AddMemoryPromptRequest, CreateMemoryRequest, DeleteAllMemoriesRequest, SimpleLLMQueryInputs, SimpleLLMQueryOutputs, GenerateMemoriesRequest, GetAllMemoriesQuery, LaminarEndpoints, LaminarOutputs, LaminarRequestArgs, UpdateMemoryRequest
 };
 use crate::prompts::Prompts;
 use chrono::{DateTime, Utc};
@@ -228,7 +223,7 @@ async fn add_memory_prompt(
 #[post("/generate_from_chat")]
 pub async fn generate_memories_from_chat_history_endpoint(
     app_state: web::Data<Arc<AppState>>,
-    _app_config: web::Data<Arc<AppConfig>>,
+    app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
@@ -358,7 +353,7 @@ async fn process_memory_context(
     let bpe = cl100k_base().unwrap();
 
     let futures: Vec<_> = samples.iter().enumerate().map(|(index, sample)| {
-        let app_state = app_state.clone();
+        // let app_state = app_state.clone();
         let memory_prompt = memory_prompt.clone();
         let bpe = bpe.clone();
 
@@ -381,7 +376,22 @@ async fn process_memory_context(
                 )
             };
 
-            get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &message_content).await
+            let memory_output = query_laminar_endpoint(
+                app_config, 
+                LaminarEndpoints::SimpleLLMQuery(SimpleLLMQueryInputs {
+                    prompt: message_content
+                })
+            ).await?;
+
+            match memory_output {
+                LaminarOutputs::SimpleLLMQuery(outputs) => {
+                    Ok(outputs.output.value)
+                },
+                _ => {
+                    error!("Unexpected laminar output: {:?}", memory_output);
+                    Err(actix_web::error::ErrorInternalServerError("Unexpected laminar output".to_string()))
+                }
+            }
         }
     }).collect();
 
@@ -407,7 +417,15 @@ async fn process_memory_context(
         serde_json::to_string(&formatted_memories).unwrap()
     );
 
-    let formatted_content = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &message_content).await?;
+    let formatted_output = query_laminar_endpoint(&app_config, LaminarEndpoints::SimpleLLMQuery(
+        SimpleLLMQueryInputs {
+            prompt: message_content
+        }
+    )).await?;
+    let formatted_content = match formatted_output {
+        LaminarOutputs::SimpleLLMQuery(outputs) => outputs.output.value,
+        _ => return Err(actix_web::error::ErrorInternalServerError("Unexpected laminar output".to_string())),
+    };
 
     let formatted_memories = process_formatted_memories( user_id, &formatted_content, memory_prompt_id).await?;
 
@@ -658,6 +676,65 @@ async fn increment_memory(
 
 
 // Add this utility function at the top of the file, after imports
+async fn query_laminar_endpoint(
+    app_config: &web::Data<Arc<AppConfig>>,
+    laminar_endpoint: LaminarEndpoints,
+) -> Result<LaminarOutputs, actix_web::Error> {
+    let laminar_api_key = app_config.laminar_api_key.clone();
+    let anthropic_api_key = app_config.anthropic_api_key.clone();
+
+    let request_args: LaminarRequestArgs = match laminar_endpoint {
+        LaminarEndpoints::SimpleLLMQuery(inputs) => {
+            LaminarRequestArgs {
+                endpoint: "generate_memories".to_string(),
+                inputs: inputs.clone().into(),
+                env: serde_json::json!({
+                    "ANTHROPIC_API_KEY": anthropic_api_key
+                })
+            }
+        }
+    };
+
+    let client = reqwest::Client::new();
+
+    let response = client.post("https://api.lmnr.ai/v2/endpoint/run")
+        .header("Authorization", format!("Bearer {}", laminar_api_key))
+        .json(&request_args)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Failed to get laminar response: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    if response.status().is_success() {
+        // Parse the JSON response
+        let response_body: serde_json::Value = response.json()
+            .await
+            .map_err(|e| {
+                error!("Failed to parse laminar response body: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+
+        match laminar_endpoint {
+            LaminarEndpoints::SimpleLLMQuery(_) => {
+                let outputs: SimpleLLMQueryOutputs = serde_json::from_value(response_body["outputs"].clone())
+                .map_err(|e| {
+                    error!("Failed to deserialize laminar response: {:?}", e);
+                    actix_web::error::ErrorInternalServerError(e)
+                })?;
+                info!("Laminar response: {:?}", outputs.output.value);
+
+                Ok(LaminarOutputs::SimpleLLMQuery(outputs))
+            }
+        }
+    } else {
+        error!("POST request failed with status: {:?}", response.status());
+        Err(actix_web::error::ErrorInternalServerError("Failed to get laminar response".to_string()))
+    }
+    
+}
+
 async fn get_chat_completion(
     client: &Client<OpenAIConfig>,
     model: &str,
