@@ -397,7 +397,8 @@ async fn process_formatted_memories(
                 Prompts::EMOJI_MEMORY,
                 memory_content
             );
-            let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-8b-8192", &message_content).await?;
+
+            let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await?;
             let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
 
             for memory in memories {

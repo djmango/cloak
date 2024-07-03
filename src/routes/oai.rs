@@ -59,6 +59,29 @@ async fn create_system_prompt(
 
     info!("got {} memories", memories.len());
 
+    // Organize memories by grouping
+    let mut grouped_memories: HashMap<String, Vec<String>> = HashMap::new();
+
+    for memory in memories {
+        grouped_memories
+            .entry(memory.grouping.unwrap_or_else(|| "Ungrouped".to_string()))
+            .or_insert_with(Vec::new)
+            .push(memory.content);
+    }
+
+    // Format memories
+    let formatted_memories = grouped_memories
+        .iter()
+        .map(|(grouping, contents)| {
+            format!(
+                "<memory>\n{}\n{}\n</memory>",
+                grouping,
+                contents.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
     // Create the system prompt with datetime and memories
     Ok(format!(
         "You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
@@ -79,7 +102,7 @@ async fn create_system_prompt(
 
     If the memory is pertinent to the user's query, Invisibility will use the information when answering it.",
         start_time.format("%Y-%m-%d %H:%M:%S"),
-        memories.iter().map(|m| m.content.clone()).collect::<Vec<String>>().join("\n\n")
+        formatted_memories
     ))
 }
 

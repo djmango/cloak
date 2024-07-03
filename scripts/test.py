@@ -108,7 +108,7 @@ if __name__ == '__main__':
                 "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
                 ] 
 
-    user_ids = [user_ids[0]]
+    user_ids = [user_ids[1]]
     memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
     for p in os.listdir(os.path.join(cwd, 'prompts')):
         pf = os.path.join(cwd, 'prompts', p)

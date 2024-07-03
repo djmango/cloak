@@ -263,7 +263,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     pub const AUTORENAME_4: &'static str = "React Page Updated Record";
     pub const AUTORENAME_5: &'static str = "how to spell propoganda";
     pub const AUTORENAME_6: &'static str = "Spelling of Propaganda";
-    pub const EMOJI_MEMORY: &'static str = r###"You're an emoji generator. Your job is to generate an appropriate emoji based on descriptions about the user. The emoji should allow the user to easily identify what the entire description would say. You will only output an emoji, nothing else. 
+    pub const EMOJI_MEMORY: &'static str = r###"You're an emotionally intelligent emoji generator. Your job is to pick the right emoji based on descriptions about the user. The emoji should perfectly describe the contents of the user description. You will only output an emoji, nothing else. 
 
     <example input>
     Information Consumption
@@ -278,7 +278,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     pub const FORMATTING_MEMORY: &'static str = r###"You are given a large collection of descriptions of user preferences, behaviors, traits, etc. You will help a personal AI assist the user by parsing out any redundancies present in the description. You will group the user description into distinct categories, and output each category inside a <memory></memory> tag. 
 
     Stylistic Rules:
-    - The category names will be read by human users as well. Therefore, category names should be friendly, human-readable (max 2 words), and minimalistic. 
+    - The category names will be read by human users as well. Therefore, category names should be friendly, human-readable (max 2 words), and simple. 
     
     You may find the example input and output below helpful.
     
