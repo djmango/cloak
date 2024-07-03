@@ -136,7 +136,7 @@ if __name__ == '__main__':
                         if not os.path.exists(os.path.join(cwd, 'logs')):
                             os.makedirs(os.path.join (cwd, 'logs'), exist_ok=True)
                         with open(log_file_path, 'a') as log_file:
-                            log_file.write(f'{memory["id"]},{memory["content"]}\n')
+                            log_file.write(f'{memory["id"]},{memory["content"]}, {memory["grouping"]}, {memory["emoji"]}\n')
 
             except Exception as exc:
                 print(f'Generated an exception: {exc}')

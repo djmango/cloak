@@ -395,7 +395,7 @@ async fn process_formatted_memories(
             
             let message_content = format!("{}\n\n{}", 
                 Prompts::EMOJI_MEMORY,
-                memory_content
+                grouping
             );
 
             let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await?;
