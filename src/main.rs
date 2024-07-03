@@ -1,19 +1,19 @@
+use crate::models::memory::Memory;
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::web;
 use async_openai::{config::OpenAIConfig, Client};
 use config::AppConfig;
+use moka::future::Cache;
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
 use sqlx::postgres::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
-use moka::future::Cache;
-use crate::models::memory::Memory;
 use uuid::Uuid;
-use std::collections::HashMap;
 
 mod config;
 mod middleware;
@@ -118,14 +118,14 @@ async fn main(
                         .service(routes::pay::payment_success),
                 )
                 .service(
-                    web::scope("/memory")
+                    web::scope("/memories")
                         .service(routes::memory::generate_memories_from_chat_history)
                         .service(routes::memory::add_memory_prompt)
                         .service(routes::memory::create_memory)
                         .service(routes::memory::get_all_memories)
                         .service(routes::memory::update_memory)
                         .service(routes::memory::delete_memory)
-                        .service(routes::memory::delete_all_memories)
+                        .service(routes::memory::delete_all_memories),
                 )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
