@@ -305,7 +305,7 @@ impl Memory {
             .iter()
             .map(|(grouping, contents)| {
                 format!(
-                    "<memory>\n{}\n{}\n</memory>",
+                    "<memory group>\n{}\n{}\n</memory group>",
                     grouping,
                     contents.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n")
                 )

@@ -392,4 +392,141 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </output> 
     
     "###;
+
+    pub const INCREMENT_MEMORY: &'static str = r###"<instruction>
+    Task: Analyze new memories and categorize them into existing or new memory groups. 
+    
+    Key Terms:
+    - Memory: A piece of information about the user's preferences, traits, or behaviors.
+    - Memory Group: A category that contains related memories.
+    
+    Steps:
+    1. Review the given new memories and existing memory groups.
+    2. For each new memory, follow the decision rules to determine its categorization.
+    3. Provide your analysis in the specified format.
+    
+    Decision Rules (apply in order):
+    1. Existing Grouping Match: Can the memory fit into an existing grouping?
+       - If YES: Assign "OLD" as a temporary verdict with the existing grouping name. Proceed to Rule 3.
+       - If NO: Proceed to Rule 2.
+    
+    2. New Grouping Necessity: 
+       a) Do none of the existing grouping names adequately describe the new memory?
+       b) Is there a compelling reason to create a new grouping?
+       - If BOTH are YES: Assign "NEW" verdict with a suggested grouping name (max 2 words, simple and human-readable).
+       - If EITHER is NO: Assign "OLD" as a temporary verdict and proceed to Rule 3.
+    
+    3. Similarity Check: (Only if temporary verdict is "OLD")
+       - Is the memory is similar to existing memories in the grouping? 
+         (Consider content, specificity, and unique information provided)
+       - If SIMILAR: Assign "REPEAT" verdict.
+       - If NOT TOO SIMILAR: Confirm "OLD" verdict and explain the unique contribution.
+    
+    Output Format:
+    For each new memory, provide your analysis as follows:
+    <filtered memory>
+    Content: [Exact memory content]
+    Reasoning: [Your step-by-step reasoning, explicitly referencing each rule applied]
+    Verdict: NEW, [new_grouping_name] || OLD, [existing_grouping_name] || REPEAT
+    </filtered memory>
+    
+    Formatting Rules:
+    - Each content, reasoning, and verdict should be on a single line.
+    - Use only one newline between content, reasoning, and verdict.
+    - Grouping names should be max 2 words, simple, and human-readable.
+    
+    New Memories:
+    {0}
+    
+    Existing Memory Groups:
+    {1}
+    </instruction>
+    
+    <example>
+    Existing Memory Groups:
+    <memory group>
+    Learning Preferences
+    - Appreciates concise, direct answers to technical questions
+    - Values detailed, technical explanations with code examples
+    - Prefers step-by-step instructions for problem-solving
+    - Asks probing questions to understand concepts deeply
+    - Seeks practical solutions over theoretical explanations
+    </memory group>
+
+    <memory group>
+    Interests 
+    - Music (punk and rock) 
+    - Aerospace engineering 
+    - Poetry 
+    - AI technologies and models 
+    - UI/UX design and optimization 
+    - History and geography 
+    </memory group>
+
+    <memory group>
+    Personal Traits 
+    - Detail-oriented in programming and UI design 
+    - Values efficiency and performance in development 
+    - Name is Sulaiman 
+    - Curious about diverse topics 
+    - Proactive in optimizing code and workflows 
+    </memory group>
+
+    <memory group>
+    Communication Style
+    - Prefers direct, concise communication focused on technical details
+    - Often uses very short messages, single words, or random character strings
+    - Occasionally uses casual language, including expletives
+    - Tends to ignore requests for clarification
+    - Prefers brief, concise responses and direct communication
+    - Prefers direct, accurate communication
+    - Frequently tests system with repetitive or nonsensical inputs
+    </memory group>
+    
+    New Memories:
+    - Values clear, detailed explanations in technical discussions 
+    - Appreciates detailed step-by-step explanations for troubleshooting and debugging
+    - Literature or film, particularly works with unique or artistic elements
+    - Cautious approach to technical procedures, especially those with potential risks
+    - Communicates using extremely brief messages, often single words or short phrases
+    - Working on "Invisibility," an AI-powered application with memory generation and chat processing
+    
+    Output:
+    <filtered memory>
+    Content: Values clear, detailed explanations in technical discussions 
+    Reasoning: Rule 1: YES - This fits the existing "Learning Preferences" grouping. Temporary verdict: OLD. Rule 3: The memory is very similar to existing memory "Values detailed, technical explanations with code examples". It doesn't add significant new information.
+    Verdict: REPEAT
+    </filtered memory>
+    
+    <filtered memory>
+    Content: Appreciates detailed step-by-step explanations for troubleshooting and debugging
+    Reasoning: Rule 1: YES - This fits the existing "Learning Preferences" grouping. Temporary verdict: OLD. Rule 3: This memory is too similar to existing memories "Values detailed, technical explanations with code examples" and "Prefers step-by-step instructions for problem-solving". It doesn't provide unique information.
+    Verdict: REPEAT
+    </filtered memory>
+    
+    <filtered memory>
+    Content: Literature or film, particularly works with unique or artistic elements
+    Reasoning: Rule 1: YES - This can fit into the existing "Interests" grouping. Temporary verdict: OLD. Rule 3: While related to the existing interest "Poetry", this memory provides unique information about specific preferences in literature and film, focusing on unique or artistic elements. It adds new details to the user's interests.
+    Verdict: OLD, Interests
+    </filtered memory>
+    
+    <filtered memory>
+    Content: Cautious approach to technical procedures, especially those with potential risks
+    Reasoning: Rule 1: YES - This can fit into the existing "Personal Traits" grouping. Temporary verdict: OLD. Rule 3: This memory contributes unique information about the user's approach to technical work, specifically highlighting caution with risky procedures. It adds a new dimension to the user's personal traits.
+    Verdict: OLD, Personal Traits
+    </filtered memory>
+    
+    <filtered memory>
+    Content: Communicates using extremely brief messages, often single words or short phrases
+    Reasoning: Rule 1: YES - This fits the existing "Communication Style" grouping. Temporary verdict: OLD. Rule 3: The memory is too similar to existing memories "Often uses very short messages, single words, or random character strings" and "Prefers brief, concise responses and direct communication". It doesn't add significant new information.
+    Verdict: REPEAT
+    </filtered memory>
+    
+    <filtered memory>
+    Content: Working on "Invisibility," an AI-powered application with memory generation and chat processing
+    Reasoning: Rule 1: NO - This doesn't clearly fit into any existing grouping. Rule 2: a) YES - No existing grouping adequately describes this project-specific information. b) YES - Information about current projects is distinct and important. A new grouping for projects would be valuable.
+    Verdict: NEW, Projects
+    </filtered memory>
+    </example>
+    "###;
 }

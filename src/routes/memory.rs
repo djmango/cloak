@@ -518,33 +518,8 @@ async fn increment_memory(
 
     // Format memories
     let formatted_memories = Memory::format_grouped_memories(existing_memories);
-    let prompt = format!(
-        r#"Analyze the following new memories and determine if each belongs to an existing memory grouping, requires a new one, or is redundant.
-
-New Memories:
-{}
-
-Existing Memory Groupings:
-{}
-
-For each new memory, provide your analysis in the following format:
-<filtered memory>
-Content: {{memory content}}
-Reasoning: {{Your step-by-step reasoning here}}
-Verdict: NEW, {{new_grouping_name}} || OLD, {{existing_grouping_name}} || REPEAT
-</filtered memory>
-
-Rules:
-1. If the memory fits into an existing grouping, use "OLD" verdict with the existing grouping name.
-2. If the memory requires a new grouping, use "NEW" verdict with a suggested grouping name. Grouping name should be no more than 2 words, and should be simple, friendly, and human-readable.
-3. If the memory is redundant or too similar to existing memories, use "REPEAT" verdict.
-4. Provide clear reasoning for each decision.
-5. Each content, reasoning, and verdict should be a single line. There should be only one newline that separates each, no more. 
-"#,
-        new_memories.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("\n\n"),
-        formatted_memories
-    );
-
+    let new_memories_str = new_memories.iter().map(|m| format!("- {}", m.content)).collect::<Vec<_>>().join("\n\n");
+    let prompt = Prompts::INCREMENT_MEMORY.replace("{0}", &new_memories_str).replace("{1}", &formatted_memories);
     info!("Prompt:\n {}", prompt);
 
     let response = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &prompt).await?;
@@ -680,6 +655,8 @@ Rules:
 
     Ok(added_memories)
 }
+
+
 // Add this utility function at the top of the file, after imports
 async fn get_chat_completion(
     client: &Client<OpenAIConfig>,
