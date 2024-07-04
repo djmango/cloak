@@ -242,7 +242,8 @@ pub async fn generate_memories_from_chat_history_endpoint(
     });
 
     generate_memories_from_chat_history(
-        &app_state, 
+        &app_state,
+        &app_config,
         None,
         &user_id, 
         &memory_prompt_id, 
@@ -254,6 +255,7 @@ pub async fn generate_memories_from_chat_history_endpoint(
 
 pub async fn generate_memories_from_chat_history(
     app_state: &web::Data<Arc<AppState>>,
+    app_config: &web::Data<Arc<AppConfig>>,
     sem: Option<Arc<Semaphore>>,
     user_id: &str,
     memory_prompt_id: &Uuid,
@@ -328,7 +330,7 @@ pub async fn generate_memories_from_chat_history(
         
     info!("Generated {} samples", generated_samples.len());
 
-    let generated_memories = process_memory_context(&app_state, sem, &user_id, &generated_samples, memory_prompt_id.clone()).await?;
+    let generated_memories = process_memory_context(&app_state, &app_config, sem, &user_id, &generated_samples, memory_prompt_id.clone()).await?;
 
     Ok(web::Json(generated_memories))
 }
@@ -336,6 +338,7 @@ pub async fn generate_memories_from_chat_history(
 // add memory_metadata
 async fn process_memory_context(
     app_state: &web::Data<Arc<AppState>>,
+    app_config: &web::Data<Arc<AppConfig>>,
     sem: Option<Arc<Semaphore>>,
     user_id: &str,
     samples: &Vec<String>,
@@ -389,7 +392,7 @@ async fn process_memory_context(
                 },
                 _ => {
                     error!("Unexpected laminar output: {:?}", memory_output);
-                    Err(actix_web::error::ErrorInternalServerError("Unexpected laminar output".to_string()))
+                    Err(Error::msg("Unexpected laminar output"))
                 }
             }
         }
@@ -417,14 +420,18 @@ async fn process_memory_context(
         serde_json::to_string(&formatted_memories).unwrap()
     );
 
-    let formatted_output = query_laminar_endpoint(&app_config, LaminarEndpoints::SimpleLLMQuery(
-        SimpleLLMQueryInputs {
-            prompt: message_content
-        }
-    )).await?;
+    let formatted_output = query_laminar_endpoint(
+        &app_config,
+         LaminarEndpoints::SimpleLLMQuery(
+            SimpleLLMQueryInputs {
+                prompt: message_content
+            }
+        )
+    ).await?;
+    
     let formatted_content = match formatted_output {
         LaminarOutputs::SimpleLLMQuery(outputs) => outputs.output.value,
-        _ => return Err(actix_web::error::ErrorInternalServerError("Unexpected laminar output".to_string())),
+        _ => return Err(Error::msg("Unexpected laminar output")),
     };
 
     let formatted_memories = process_formatted_memories( user_id, &formatted_content, memory_prompt_id).await?;
@@ -679,7 +686,7 @@ async fn increment_memory(
 async fn query_laminar_endpoint(
     app_config: &web::Data<Arc<AppConfig>>,
     laminar_endpoint: LaminarEndpoints,
-) -> Result<LaminarOutputs, actix_web::Error> {
+) -> Result<LaminarOutputs, Error> {
     let laminar_api_key = app_config.laminar_api_key.clone();
     let anthropic_api_key = app_config.anthropic_api_key.clone();
 
@@ -704,7 +711,7 @@ async fn query_laminar_endpoint(
         .await
         .map_err(|e| {
             error!("Failed to get laminar response: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
+            e
         })?;
 
     if response.status().is_success() {
@@ -713,7 +720,7 @@ async fn query_laminar_endpoint(
             .await
             .map_err(|e| {
                 error!("Failed to parse laminar response body: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
+                e
             })?;
 
         match laminar_endpoint {
@@ -721,7 +728,7 @@ async fn query_laminar_endpoint(
                 let outputs: SimpleLLMQueryOutputs = serde_json::from_value(response_body["outputs"].clone())
                 .map_err(|e| {
                     error!("Failed to deserialize laminar response: {:?}", e);
-                    actix_web::error::ErrorInternalServerError(e)
+                    e
                 })?;
                 info!("Laminar response: {:?}", outputs.output.value);
 
@@ -730,7 +737,7 @@ async fn query_laminar_endpoint(
         }
     } else {
         error!("POST request failed with status: {:?}", response.status());
-        Err(actix_web::error::ErrorInternalServerError("Failed to get laminar response".to_string()))
+        Err(Error::msg("Failed to get laminar response"))
     }
     
 }
