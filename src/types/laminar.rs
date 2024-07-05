@@ -1,3 +1,4 @@
+use async_openai::types::ChatCompletionRequestMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -31,12 +32,36 @@ pub struct SimpleLLMQueryOutputs {
     pub output: LaminarValue
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ChatAgentInputs {
+    pub messages: Vec<ChatCompletionRequestMessage>,
+    pub user_memories: String,
+    pub date: String
+}
+
+impl Into<Value> for ChatAgentInputs {
+    fn into(self) -> Value {
+        serde_json::json!({
+            "chat_messages": self.messages,
+            "memories": self.user_memories,
+            "date": self.date
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChatAgentOutputs {
+    pub response: LaminarValue
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum LaminarEndpoints {
     SimpleLLMQuery(SimpleLLMQueryInputs),
+    ChatAgentQuery(ChatAgentInputs)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum LaminarOutputs {
     SimpleLLMQuery(SimpleLLMQueryOutputs),
+    ChatAgentQuery(ChatAgentOutputs)
 }

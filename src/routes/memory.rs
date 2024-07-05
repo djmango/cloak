@@ -21,7 +21,7 @@ use futures::future::join_all;
 use crate::AppState;
 use crate::AppConfig;
 use crate::types::{
-    AddMemoryPromptRequest, CreateMemoryRequest, DeleteAllMemoriesRequest, SimpleLLMQueryInputs, SimpleLLMQueryOutputs, GenerateMemoriesRequest, GetAllMemoriesQuery, LaminarEndpoints, LaminarOutputs, LaminarRequestArgs, UpdateMemoryRequest
+    AddMemoryPromptRequest, ChatAgentOutputs, CreateMemoryRequest, DeleteAllMemoriesRequest, GenerateMemoriesRequest, GetAllMemoriesQuery, LaminarEndpoints, LaminarOutputs, LaminarRequestArgs, SimpleLLMQueryInputs, SimpleLLMQueryOutputs, UpdateMemoryRequest
 };
 use crate::prompts::Prompts;
 use chrono::{DateTime, Utc};
@@ -381,7 +381,7 @@ async fn process_memory_context(
 
             let memory_output = query_laminar_endpoint(
                 app_config, 
-                LaminarEndpoints::SimpleLLMQuery(SimpleLLMQueryInputs {
+                &LaminarEndpoints::SimpleLLMQuery(SimpleLLMQueryInputs {
                     prompt: message_content
                 })
             ).await?;
@@ -422,7 +422,7 @@ async fn process_memory_context(
 
     let formatted_output = query_laminar_endpoint(
         &app_config,
-         LaminarEndpoints::SimpleLLMQuery(
+         &LaminarEndpoints::SimpleLLMQuery(
             SimpleLLMQueryInputs {
                 prompt: message_content
             }
@@ -685,7 +685,7 @@ async fn increment_memory(
 // Add this utility function at the top of the file, after imports
 async fn query_laminar_endpoint(
     app_config: &web::Data<Arc<AppConfig>>,
-    laminar_endpoint: LaminarEndpoints,
+    laminar_endpoint: &LaminarEndpoints,
 ) -> Result<LaminarOutputs, Error> {
     let laminar_api_key = app_config.laminar_api_key.clone();
     let anthropic_api_key = app_config.anthropic_api_key.clone();
@@ -699,6 +699,19 @@ async fn query_laminar_endpoint(
                     "ANTHROPIC_API_KEY": anthropic_api_key
                 })
             }
+        },
+        LaminarEndpoints::ChatAgentQuery(inputs) => {
+            LaminarRequestArgs {
+                endpoint: "chat".to_string(),
+                inputs: inputs.clone().into(),
+                env: serde_json::json!({
+                    "ANTHROPIC_API_KEY": anthropic_api_key
+                })
+            }
+        },
+        _ => {
+            error!("Invalid laminar endpoint: {:?}", laminar_endpoint);
+            return Err(Error::msg("Invalid laminar endpoint"));
         }
     };
 
@@ -733,6 +746,19 @@ async fn query_laminar_endpoint(
                 info!("Laminar response: {:?}", outputs.output.value);
 
                 Ok(LaminarOutputs::SimpleLLMQuery(outputs))
+            },
+            LaminarEndpoints::ChatAgentQuery(_) => {
+                let outputs: ChatAgentOutputs = serde_json::from_value(response_body["outputs"].clone())
+                .map_err(|e| {
+                    error!("Failed to deserialize laminar response: {:?}", e);
+                    e
+                })?;
+                info!("Laminar response: {:?}", outputs.response.value);
+                Ok(LaminarOutputs::ChatAgentQuery(outputs))
+            }
+            _ => {
+                error!("Invalid laminar endpoint: {:?}", laminar_endpoint);
+                return Err(Error::msg("Invalid laminar endpoint"));
             }
         }
     } else {

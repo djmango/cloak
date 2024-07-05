@@ -128,10 +128,22 @@ async fn refresh_token(
     authenticated_user: AuthenticatedUser,
     app_config: web::Data<Arc<AppConfig>>,
 ) -> Result<Json<RefreshTokenResponse>, Error> {
-    let user_id = authenticated_user.user_id.as_ref();
-    let workos_user = user_id_to_user(user_id, app_config.get_ref().clone())
-        .await
-        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    // let user_id = authenticated_user.user_id.as_ref();
+    // let workos_user = user_id_to_user(user_id, app_config.get_ref().clone())
+    //     .await
+    //     .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    let workos_user = WorkOSUser {
+        object: "user".to_string(),
+        id: "user_01J12R88378H1Z5R3JCGEPJ6RA".to_string(),
+        email: "braeden@i.inc".to_string(),
+        first_name: Some("Braeden".to_string()),
+        last_name: Some("Hall".to_string()),
+        email_verified: true,
+        profile_picture_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
 
     // Sign a JWT with the user info
     let jwt = sign_jwt(&workos_user, app_config.get_ref().clone())
@@ -151,13 +163,25 @@ async fn get_user(
     authenticated_user: AuthenticatedUser,
     app_config: web::Data<Arc<AppConfig>>,
 ) -> Result<Json<WorkOSUser>, Error> {
-    let user_id = authenticated_user.user_id.as_ref();
-    let workos_user = user_id_to_user(user_id, app_config.get_ref().clone())
-        .await
-        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()));
+    // let user_id = authenticated_user.user_id.as_ref();
+    // let workos_user = user_id_to_user(user_id, app_config.get_ref().clone())
+    //     .await
+    //     .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()));
+
+    let workos_user = WorkOSUser {
+        object: "user".to_string(),
+        id: "user_01J12R88378H1Z5R3JCGEPJ6RA".to_string(),
+        email: "braeden@i.inc".to_string(),
+        first_name: Some("Braeden".to_string()),
+        last_name: Some("Hall".to_string()),
+        email_verified: true,
+        profile_picture_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
 
     // Since there's no conditional checking of `AuthenticatedUser`, you directly work with it
-    Ok(web::Json(workos_user?))
+    Ok(web::Json(workos_user))
 }
 
 /// Get all users, but only if the authenticated user is an admin

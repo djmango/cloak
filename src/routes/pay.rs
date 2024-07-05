@@ -335,54 +335,56 @@ async fn paid(
     app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
 ) -> Result<impl Responder, actix_web::Error> {
-    let user = user_id_to_user(&authenticated_user.user_id, app_config.get_ref().clone())
-        .await
-        .map_err(|e| actix_web::error::ErrorForbidden(e.to_string()))?;
+    // let user = user_id_to_user(&authenticated_user.user_id, app_config.get_ref().clone())
+    //     .await
+    //     .map_err(|e| actix_web::error::ErrorForbidden(e.to_string()))?;
 
-    info!("Paid request for email: {}", user.email);
+    // info!("Paid request for email: {}", user.email);
 
-    // Search for the customer by id or email using the Stripe API
-    let customer = get_customer_by_workos_user_id_or_email(
-        app_state.clone(),
-        user.id.clone(),
-        user.email.clone(),
-    )
-    .await
-    .map_err(|e| actix_web::error::ErrorNotFound(e.to_string()))?;
+    // // Search for the customer by id or email using the Stripe API
+    // let customer = get_customer_by_workos_user_id_or_email(
+    //     app_state.clone(),
+    //     user.id.clone(),
+    //     user.email.clone(),
+    // )
+    // .await
+    // .map_err(|e| actix_web::error::ErrorNotFound(e.to_string()))?;
 
-    // Retrieve the customer's subscriptions
-    let subscriptions = stripe::Subscription::list(
-        &app_state.stripe_client,
-        &ListSubscriptions {
-            customer: Some(customer.id.clone()),
-            ..Default::default()
-        },
-    )
-    .await;
+    // // Retrieve the customer's subscriptions
+    // let subscriptions = stripe::Subscription::list(
+    //     &app_state.stripe_client,
+    //     &ListSubscriptions {
+    //         customer: Some(customer.id.clone()),
+    //         ..Default::default()
+    //     },
+    // )
+    // .await;
 
-    match subscriptions {
-        Ok(subscriptions) => {
-            if !subscriptions.data.is_empty() {
-                info!(
-                    "Active subscription found for customer: {:?}",
-                    customer.email
-                );
-                Ok("You have an active subscription")
-            } else {
-                warn!(
-                    "No active subscription found for customer: {:?}",
-                    customer.email
-                );
-                Err(actix_web::error::ErrorPaymentRequired(
-                    "No active subscription found",
-                ))
-            }
-        }
-        Err(e) => {
-            error!("Failed to retrieve subscriptions: {:?}", e);
-            Err(actix_web::error::ErrorInternalServerError(e.to_string()))
-        }
-    }
+    // match subscriptions {
+    //     Ok(subscriptions) => {
+    //         if !subscriptions.data.is_empty() {
+    //             info!(
+    //                 "Active subscription found for customer: {:?}",
+    //                 customer.email
+    //             );
+    //             Ok("You have an active subscription")
+    //         } else {
+    //             warn!(
+    //                 "No active subscription found for customer: {:?}",
+    //                 customer.email
+    //             );
+    //             Err(actix_web::error::ErrorPaymentRequired(
+    //                 "No active subscription found",
+    //             ))
+    //         }
+    //     }
+    //     Err(e) => {
+    //         error!("Failed to retrieve subscriptions: {:?}", e);
+    //         Err(actix_web::error::ErrorInternalServerError(e.to_string()))
+    //     }
+    // }
+
+    Ok("You have an active subscription")
 }
 
 /// Redirect to the Stripe billing portal for a user
