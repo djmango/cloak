@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+    checks: write
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -20,3 +23,15 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+    clippy:
+        name: Clippy
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v3
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+            - uses: auguwu/clippy-action@1.4.0
+              with:
+                  token: ${{secrets.GITHUB_TOKEN}}
