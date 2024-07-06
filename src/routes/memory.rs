@@ -54,7 +54,6 @@ async fn call_fn(
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
             let emoji = function_args.get("emoji").and_then(|e| e.as_str());
             let new_memory = Memory::add_memory(pool, memory, grouping, emoji, user_id, Some(memory_prompt_id), memory_cache).await?;
-            
             Ok(vec![new_memory])
         }
         "update_memory" => {
@@ -492,8 +491,6 @@ async fn increment_memory(
     let prompt = Prompts::INCREMENT_MEMORY.replace("{0}", &new_memories_str).replace("{1}", &formatted_memories);
     
     let response = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &prompt).await?;
-    info!("Filtered memories:");
-    info!(response);
     let filtered_memories = parse_ai_response(app_state, user_id, existing_memories, memory_prompt_id, &response).await?;
 
     let memories_to_update: Vec<Memory> = filtered_memories.iter()
@@ -581,7 +578,6 @@ async fn get_emoji(app_state: &web::Data<Arc<AppState>>, user_id: &str, grouping
     info!("Generated new emoji '{}' for grouping '{}'", generated_emoji, grouping);
     Ok(generated_emoji)
 }
-
 
 lazy_static! {
     static ref FILTERED_MEMORY_REGEX: Regex = Regex::new(r"(?s)<filtered memory>(.*?)</filtered memory>").unwrap();
