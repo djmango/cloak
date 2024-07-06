@@ -176,7 +176,7 @@ def log_response(test_case, response, log_dir):
 
 if __name__ == '__main__':
     base_url = "http://localhost:8000"
-    user_ids = ['user_01HRBJ8FVP3JT28DEWXN6JPKF5']
+    user_ids = ['user_01HRBJ8FVP3JT28DEWXN6JPKF5', 'user_01HY5EW9Z5XVE34GZXKH4NC2Y1']
     memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
     for user_id in user_ids:
         delete_all_memories(base_url, user_id)

@@ -17,7 +17,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{info, error};
 use uuid::Uuid;
-use futures::future::join_all;
+use futures::future::{join_all, try_join_all};
 use crate::AppState;
 use crate::AppConfig;
 use crate::types::{
@@ -34,7 +34,9 @@ use tiktoken_rs::cl100k_base;
 use moka::future::Cache;
 use std::collections::HashMap;
 
+use lazy_static::lazy_static;
 use tokio::sync::Semaphore;
+use regex::Regex;
 
 async fn call_fn(
     pool: &PgPool,
@@ -57,7 +59,7 @@ async fn call_fn(
         }
         "update_memory" => {
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
-            let new_memory = function_args["new_memory"].as_str().unwrap();
+            let new_memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
             let emoji = function_args.get("emoji").and_then(|e| e.as_str());
             let updated_memory =
@@ -134,7 +136,8 @@ async fn get_all_memories(
     
     if let Some(format) = info.format {
         if format {
-            let formatted_memories = Memory::format_grouped_memories(&memories);
+            let format_with_id = false;
+            let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
             return Ok(HttpResponse::Ok().json(formatted_memories));
         }
     }
@@ -465,198 +468,257 @@ async fn increment_memory(
     new_memories: &Vec<Memory>,
     existing_memories: &Vec<Memory>,
 ) -> Result<Vec<Memory>, Error> {
+    let new_memory_count = new_memories.len();
+    let existing_memory_count = existing_memories.len();
 
-    // If no existing memories, directly add new memories to the database
+    info!("Memory Stats:");
+    info!("  • New memories:     {:>5}", new_memory_count);
+    info!("  • Existing memories:{:>5}", existing_memory_count);
+
     if existing_memories.is_empty() {
-        let futures: Vec<_> = new_memories.iter().map(|memory| {
-            let app_state = app_state.clone();
-            let sem = sem.clone();
+        let added_memories = process_memories(app_state, "create_memory", user_id, memory_prompt_id, sem, new_memories).await?;
+        let added_memory_count = added_memories.len();
+        let new_total_count = added_memory_count;
 
-            async move {
-                let message_content = format!("{}\n\n{}", 
-                    Prompts::EMOJI_MEMORY,
-                    memory.grouping.clone().unwrap_or_default()
-                );
+        info!("  • Added memories:   {:>5}", added_memory_count);
+        info!("  • New total count:  {:>5}", new_total_count);
 
-                let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await.ok();
-                let emoji = emoji_response.and_then(|response| response.trim().chars().next()).unwrap_or('📝').to_string();
-
-                let args = json!({
-                    "memory": memory.content,
-                    "grouping": memory.grouping,
-                    "emoji": emoji
-                }).to_string();
-
-                // Acquire the semaphore permit if provided
-                let _permit = if let Some(sem) = &sem {
-                    Some(sem.acquire().await?)
-                } else {
-                    None
-                };
-
-                call_fn(
-                    &app_state.pool,
-                    "create_memory",
-                    &args,
-                    &memory.user_id,
-                    memory.memory_prompt_id.unwrap_or_default(),
-                    &app_state.memory_cache,
-                ).await.map_err(|e| {
-                    error!("Failed to create memory: {:?}", e);
-                    e
-                })
-            }
-        }).collect();
-
-        let results = futures::future::join_all(futures).await;
-        let added_memories: Vec<Memory> = results.into_iter()
-            .filter_map(|result| result.ok())
-            .flat_map(|new_memories| new_memories.into_iter().next())
-            .collect();
         return Ok(added_memories);
     }
 
-    // Format memories
-    let formatted_memories = Memory::format_grouped_memories(existing_memories);
+    let format_with_id = true;
+    let formatted_memories = Memory::format_grouped_memories(existing_memories, format_with_id);
     let new_memories_str = new_memories.iter().map(|m| format!("- {}", m.content)).collect::<Vec<_>>().join("\n\n");
     let prompt = Prompts::INCREMENT_MEMORY.replace("{0}", &new_memories_str).replace("{1}", &formatted_memories);
-    info!("Prompt:\n {}", prompt);
-
+    
     let response = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &prompt).await?;
+    info!("Filtered memories:");
+    info!(response);
+    let filtered_memories = parse_ai_response(app_state, user_id, existing_memories, memory_prompt_id, &response).await?;
 
-    info!("AI Response:\n {}", response);
-    let memory_regex = regex::Regex::new(r"(?s)<filtered memory>(.*?)</filtered memory>").unwrap();
-    let content_regex = regex::Regex::new(r"Content:\s*(.+)").unwrap();
-    let verdict_regex = regex::Regex::new(r"Verdict:\s*(.+)").unwrap();
+    let memories_to_update: Vec<Memory> = filtered_memories.iter()
+        .filter(|memory| existing_memories.iter().any(|m| m.id == memory.id))
+        .cloned()
+        .collect();
 
-    let futures: Vec<_> = memory_regex.captures_iter(&response).enumerate().map(|(idx, capture)| {
-        let app_state = app_state.clone();
-        let content_regex = content_regex.clone();
-        let verdict_regex = verdict_regex.clone();
+    let memories_to_add: Vec<Memory> = filtered_memories.iter()
+        .filter(|memory| !memories_to_update.iter().any(|m| m.id == memory.id))
+        .cloned()
+        .collect();
 
-        async move {
-            let memory_block = capture.get(1).map(|m| m.as_str().trim()).unwrap_or("");
-            
-            let content = content_regex.captures(memory_block)
-                .and_then(|c| c.get(1))
-                .map(|m| m.as_str().trim())
-                .unwrap_or("");
+    let updated_memories = process_memories(app_state, "update_memory", user_id, memory_prompt_id, sem.clone(), &memories_to_update).await?;
+    let added_memories = process_memories(app_state, "create_memory", user_id, memory_prompt_id, sem, &memories_to_add).await?;
+    let updated_memory_count = updated_memories.len();
+    let added_memory_count = added_memories.len();
+    let new_total_count = existing_memory_count + added_memory_count;
 
-            let verdict = verdict_regex.captures(memory_block)
-                .and_then(|c| c.get(1))
-                .map(|m| m.as_str().trim())
-                .unwrap_or("");
+    info!("  • Updated memories: {:>5}", updated_memory_count);
+    info!("  • Added memories:   {:>5}", added_memory_count);
+    info!("  • New total count:  {:>5}", new_total_count);
 
-            info!("Memory {}:\n Content: {},\n Verdict: {}", idx, content, verdict);
-
-            let (verdict_type, grouping) = match verdict.split_once(',') {
-                Some((v, g)) => (v.trim(), g.trim()),
-                None => {
-                    if verdict == "REPEAT" {
-                        ("REPEAT", "")
-                    } else {
-                        error!("Invalid verdict format: {}", verdict);
-                        return None;
-                    }
-                },
-            };
-
-            match verdict_type {
-                "NEW" => {
-                    let message_content = format!("{}\n\n{}", 
-                        Prompts::EMOJI_MEMORY,
-                        grouping
-                    );
-
-                    let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await.ok()?;
-                    let emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
-
-                    let new_memory = Memory::new(
-                        Uuid::new_v4(),
-                        user_id,
-                        content,
-                        Some(memory_prompt_id),
-                        None,
-                        Some(grouping),
-                        Some(&emoji)
-                    );
-                    Some(new_memory)
-                }
-                "OLD" => {
-                    let existing_emoji = app_state.memory_cache.get(user_id).await
-                        .and_then(|user_memories| user_memories.values()
-                            .find(|m| m.grouping.as_deref() == Some(grouping))
-                            .and_then(|m| m.emoji.clone()));
-
-                    let emoji = if let Some(emoji) = existing_emoji {
-                        emoji
-                    } else {
-                        let message_content = format!("{}\n\n{}", 
-                            Prompts::EMOJI_MEMORY,
-                            grouping
-                        );
-                        let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await.ok()?;
-                        emoji_response.trim().chars().next().unwrap_or('📝').to_string()
-                    };
-
-                    let new_memory = Memory::new(
-                        Uuid::new_v4(),
-                        user_id,
-                        content,
-                        Some(memory_prompt_id),
-                        None,
-                        Some(grouping),
-                        Some(&emoji)
-                    );
-                    Some(new_memory)
-                }
-                "REPEAT" => None,
-                _ => {
-                    error!("Invalid verdict type: {}", verdict_type);
-                    None
-                }
-            }
-        }
-    }).collect();
-
-    let filtered_memories: Vec<Memory> = join_all(futures).await.into_iter().filter_map(|result| result).collect();
-    let mut added_memories = Vec::new();
-    for memory in filtered_memories {
-        let args = json!({
-            "memory": memory.content,
-            "grouping": memory.grouping,
-            "emoji": memory.emoji
-        }).to_string();
-
-        // Acquire the semaphore permit if provided
-        let _permit = if let Some(sem) = &sem {
-            Some(sem.acquire().await?)
-        } else {
-            None
-        };
-
-        let new_memories = call_fn(
-            &app_state.pool,
-            "create_memory",
-            &args,
-            &memory.user_id,
-            memory.memory_prompt_id.unwrap_or_default(),
-            &app_state.memory_cache,
-        ).await.map_err(|e| {
-            error!("Failed to create memory: {:?}", e);
-            e
-        })?;
-
-        // The semaphore permit is automatically released here when _permit goes out of scope
-        if let Some(new_memory) = new_memories.into_iter().next() {
-            added_memories.push(new_memory);
-        }
-    }
-
-    Ok(added_memories)
+    Ok([updated_memories, added_memories].concat())
 }
 
 
+async fn process_memories(
+    app_state: &web::Data<Arc<AppState>>,
+    op_type: &str, 
+    user_id: &str,
+    memory_prompt_id: Uuid,
+    sem: Option<Arc<Semaphore>>,
+    memories: &Vec<Memory>,
+) -> Result<Vec<Memory>, Error> {
+    let futures = memories.iter().map(|memory| {
+        let app_state = app_state.clone();
+        let sem = sem.clone();
+        async move {
+            let emoji = match &memory.emoji {
+                Some(e) => e.to_string(),
+                None => get_emoji(&app_state, user_id, memory.grouping.as_deref().unwrap_or("")).await?,
+            };
+
+            let args = json!({
+                "memory_id": memory.id,
+                "memory": memory.content,
+                "grouping": memory.grouping,
+                "emoji": emoji
+            }).to_string();
+
+            let _permit = match sem.as_ref() {
+                Some(s) => Some(s.acquire().await?),
+                None => None,
+            };
+
+            call_fn(
+                &app_state.pool,
+                op_type,
+                &args,
+                user_id,
+                memory_prompt_id,
+                &app_state.memory_cache,
+            ).await?.into_iter().next().ok_or_else(|| Error::msg("Failed to create memory"))
+        }
+    });
+
+    try_join_all(futures).await
+}
+
+
+async fn get_emoji(app_state: &web::Data<Arc<AppState>>, user_id: &str, grouping: &str) -> Result<String, Error> {
+    // First, check for existing emoji in the memory cache
+    if let Some(existing_emoji) = app_state.memory_cache.get(user_id).await
+        .and_then(|user_memories| user_memories.values()
+            .find(|m| m.grouping.as_deref() == Some(grouping))
+            .and_then(|m| m.emoji.clone())) {
+        info!("Using existing emoji '{}' for grouping '{}'", existing_emoji, grouping);
+        return Ok(existing_emoji);
+    }
+
+    // If no existing emoji, generate a new one
+    let message_content = format!("{}\n\n{}", Prompts::EMOJI_MEMORY, grouping);
+    let emoji_response = get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &message_content).await?;
+    let generated_emoji = emoji_response.trim().chars().next().unwrap_or('📝').to_string();
+    info!("Generated new emoji '{}' for grouping '{}'", generated_emoji, grouping);
+    Ok(generated_emoji)
+}
+
+
+lazy_static! {
+    static ref FILTERED_MEMORY_REGEX: Regex = Regex::new(r"(?s)<filtered memory>(.*?)</filtered memory>").unwrap();
+    static ref CONTENT_REGEX: Regex = Regex::new(r"Content:\s*(.+)").unwrap();
+    static ref VERDICT_REGEX: Regex = Regex::new(r"Verdict:\s*(.+)").unwrap();
+    static ref UPDATED_MEMORY_REGEX: Regex = Regex::new(r"(?s)<updated memory>(.*?)</updated memory>").unwrap();
+}
+
+async fn parse_ai_response(
+    app_state: &web::Data<Arc<AppState>>,
+    user_id: &str, 
+    existing_memories: &Vec<Memory>,
+    memory_prompt_id: Uuid, 
+    response: &str
+) -> Result<Vec<Memory>, Error> {
+    let futures = FILTERED_MEMORY_REGEX.captures_iter(response)
+        .enumerate()
+        .map(|(idx, capture)| async move {
+            let memory_block = match capture.get(1) {
+                Some(m) => m.as_str().trim(),
+                None => {
+                    info!("Failed to get memory block for idx {}", idx);
+                    return None;
+                }
+            };
+
+            let content = match CONTENT_REGEX.captures(memory_block).and_then(|cap| cap.get(1)) {
+                Some(m) => m.as_str().trim(),
+                None => {
+                    info!("Failed to extract content for idx {}", idx);
+                    return None;
+                }
+            };
+
+            let verdict = match VERDICT_REGEX.captures(memory_block).and_then(|cap| cap.get(1)) {
+                Some(m) => m.as_str().trim(),
+                None => {
+                    info!("Failed to extract verdict for idx {}", idx);
+                    return None;
+                }
+            };
+
+            let (verdict_type, grouping_or_memory) = match verdict.split_once(',') {
+                Some((v, g)) => (v.trim(), Some(g.trim())),
+                None if verdict == "REPEAT" => ("REPEAT", None),
+                _ => {
+                    info!("Invalid verdict format for idx {}", idx);
+                    return None;
+                }
+            };
+
+            info!("Memory {}:\n Content: {},\n Verdict: {}", idx, content, verdict_type);
+
+            match verdict_type {
+                "NEW" | "OLD" => Some(Memory::new(
+                    Uuid::new_v4(),
+                    user_id,
+                    content,
+                    Some(memory_prompt_id),
+                    None,
+                    grouping_or_memory,
+                    None, // We'll generate emoji later if needed
+                )),
+                "UPDATE" => {
+                    let memory_id = match grouping_or_memory.and_then(|id| Uuid::parse_str(id).ok()) {
+                        Some(id) => id,
+                        None => {
+                            info!("Invalid memory ID for UPDATE at idx {}", idx);
+                            return None;
+                        }
+                    };
+
+                    info!("Memory ID to update: {}", memory_id);
+                    
+                    let existing_memory = match existing_memories.iter().find(|m| m.id == memory_id) {
+                        Some(memory) => memory,
+                        None => {
+                            info!("Memory with id {} not found at idx {}", memory_id, idx);
+                            return None;
+                        }
+                    };
+                    
+                    let message_content = format!(
+                        "{}\n\nOLD MEMORY:\n{}\nNEW MEMORY:\n{}",
+                        Prompts::UPDATE_MEMORY, 
+                        existing_memory.content,
+                        content
+                     );
+
+                     info!("Update prompt:\n{}", message_content);
+
+                    let updated_content = match get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &message_content).await {
+                        Ok(content) => {
+                            info!("Chat completion result: {}", content);
+                            content
+                        },
+                        Err(e) => {
+                            info!("Failed to get chat completion at idx {}: {:?}", idx, e);
+                            return None;
+                        }
+                    };
+                    
+                    let updated_memory = match UPDATED_MEMORY_REGEX
+                        .captures(&updated_content)
+                        .and_then(|updated_cap| updated_cap.get(1))
+                        .map(|updated_memory| 
+                            Memory::new(
+                                existing_memory.id,
+                                user_id,
+                                updated_memory.as_str().trim(),
+                                Some(memory_prompt_id),
+                                None,
+                                existing_memory.grouping.as_deref(),
+                                existing_memory.emoji.as_deref()
+                            )
+                        ) {
+                        Some(memory) => memory,
+                        None => {
+                            info!("Failed to extract updated memory content at idx {}", idx);
+                            return None;
+                        }
+                    };
+
+                    info!("Updated memory: {:?}", updated_memory);
+                    Some(updated_memory)
+                },
+                "REPEAT" => None,
+                _ => {
+                    info!("Invalid verdict type at idx {}: {}", idx, verdict_type);
+                    None
+                }
+            }
+        });
+
+    let results = futures::future::join_all(futures).await;
+    Ok(results.into_iter().filter_map(|r| r).collect())
+}
 // Add this utility function at the top of the file, after imports
 async fn get_chat_completion(
     client: &Client<OpenAIConfig>,

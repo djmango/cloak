@@ -287,17 +287,17 @@ impl Memory {
         formatted_memories.trim_end().to_string()
     }
 
-    pub fn format_grouped_memories(memories: &Vec<Memory>) -> String {
+    pub fn format_grouped_memories(memories: &Vec<Memory>, with_id: bool) -> String {
         use std::collections::HashMap;
 
         // Organize memories by grouping
-        let mut grouped_memories: HashMap<String, Vec<String>> = HashMap::new();
+        let mut grouped_memories: HashMap<String, Vec<Memory>> = HashMap::new();
 
         for memory in memories {
             grouped_memories
                 .entry(memory.grouping.clone().unwrap_or_else(|| "Ungrouped".to_string()))
                 .or_insert_with(Vec::new)
-                .push(memory.content.clone());
+                .push(memory.clone());
         }
 
         // Format memories
@@ -307,7 +307,13 @@ impl Memory {
                 format!(
                     "<memory group>\n{}\n{}\n</memory group>",
                     grouping,
-                    contents.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n")
+                    contents.iter().map(|memory| 
+                        if with_id {
+                            format!("- {},{}", memory.id, memory.content)
+                        } else {
+                            format!("- {}", memory.content)
+                        }
+                    ).collect::<Vec<_>>().join("\n")
                 )
             })
             .collect::<Vec<_>>()

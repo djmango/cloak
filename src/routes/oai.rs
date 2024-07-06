@@ -59,7 +59,8 @@ async fn create_system_prompt(
 
     info!("got {} memories", memories.len());
     // Format memories
-    let formatted_memories = Memory::format_grouped_memories(&memories);
+    let format_with_id = false;
+    let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
 
     // Create the system prompt with datetime and memories
     Ok(format!(
