@@ -14,7 +14,7 @@ pub struct CreateMemoryRequest {
 pub struct GetAllMemoriesQuery {
     // pub user_id: String,
     pub memory_prompt_id: Option<Uuid>,
-    pub format: Option<bool>,
+    // pub format: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -30,7 +30,7 @@ pub struct GenerateMemoriesRequest {
     pub memory_prompt_id: Uuid,
     pub max_samples: Option<u32>,
     pub samples_per_query: Option<u32>,
-    pub log_dir: Option<String>,
+    // pub log_dir: Option<String>,
     pub range: Option<(u32, u32)>,
 }
 
@@ -44,4 +44,3 @@ pub struct AddMemoryPromptRequest {
 pub struct DeleteAllMemoriesRequest {
     pub user_id: String,
 }
-

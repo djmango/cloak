@@ -69,6 +69,7 @@ impl Default for Message {
 }
 
 impl Message {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         pool: &PgPool,
         chat_id: Uuid,
