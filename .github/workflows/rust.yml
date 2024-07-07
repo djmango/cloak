@@ -2,9 +2,7 @@ name: Rust
 
 on:
   push:
-    branches: ["master"]
   pull_request:
-    branches: ["master"]
 
 permissions:
   checks: write
@@ -31,6 +29,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Run Clippy
+        run: |
+          cargo clippy --all-targets --all-features -- -D warnings
       - uses: auguwu/clippy-action@1.4.0
         with:
           token: ${{secrets.GITHUB_TOKEN}}
