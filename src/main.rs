@@ -1,4 +1,4 @@
-use crate::models::memory::{Memory, MemoryGroup};
+use crate::models::{Memory, MemoryGroup};
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::web;

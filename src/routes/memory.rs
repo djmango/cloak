@@ -580,7 +580,7 @@ async fn increment_memory(
     user_id: &str,
     memory_prompt_id: &Uuid,
     sem: Option<Arc<Semaphore>>,
-    new_memories: &Vec<Memory>,
+    new_memories: &Vec<(Uuid, String, String)>,
     existing_memories: &Vec<Memory>,
 ) -> Result<Vec<Memory>> {
     let new_memory_count = new_memories.len();
@@ -628,9 +628,7 @@ async fn increment_memory(
     .await?;
     let filtered_memories = parse_ai_response(
         app_state,
-        user_id,
         existing_memories,
-        memory_prompt_id,
         &response,
     )
     .await?;
@@ -736,9 +734,9 @@ async fn get_emoji(
     if let Some(existing_emoji) = app_state.memory_groups_cache.get(grouping).await {
         info!(
             "Using existing emoji '{}' for grouping '{}'",
-            existing_emoji, grouping
+            existing_emoji.emoji, grouping
         );
-        return Ok(existing_emoji);
+        return Ok(existing_emoji.emoji);
     }
 
     // If no existing emoji, generate a new one
@@ -760,9 +758,6 @@ async fn get_emoji(
         generated_emoji, grouping
     );
 
-    // Store the generated emoji in the memory groups cache
-    app_state.memory_groups_cache.insert(grouping.to_string(), generated_emoji.clone()).await;
-
     Ok(generated_emoji)
 }
 
@@ -778,9 +773,7 @@ lazy_static! {
 // get group_id by group
 async fn parse_ai_response(
     app_state: &web::Data<Arc<AppState>>,
-    user_id: &str,
     existing_memories: &[Memory],
-    memory_prompt_id: &Uuid,
     response: &str,
 ) -> Result<Vec<(Uuid, String, String)>, Error> {
     let futures = FILTERED_MEMORY_REGEX
@@ -911,6 +904,7 @@ async fn parse_ai_response(
     let results = futures::future::join_all(futures).await;
     Ok(results.into_iter().flatten().collect())
 }
+
 // Add this utility function at the top of the file, after imports
 async fn get_chat_completion(
     client: &Client<OpenAIConfig>,
