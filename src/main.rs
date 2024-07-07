@@ -1,4 +1,4 @@
-use crate::models::memory::Memory;
+use crate::models::memory::{Memory, MemoryGroup};
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::web;
@@ -35,6 +35,7 @@ struct AppState {
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
     memory_cache: Cache<String, HashMap<Uuid, Memory>>,
+    memory_groups_cache: Cache<String, MemoryGroup>
 }
 
 #[derive(OpenApi)]
@@ -76,6 +77,10 @@ async fn main(
                 let estimated_memory_size = 1000; // Assume each Memory object is roughly 1000 bytes
                 (value.len() * estimated_memory_size) as u32
             })
+            .build(),
+        memory_groups_cache: Cache::builder()
+            .max_capacity(1024 * 1024 * 1024) // 1GB limit (in bytes)
+            .weigher(|_key, _value: &MemoryGroup| -> u32 {return 128})
             .build(),
     });
 

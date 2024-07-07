@@ -12,6 +12,12 @@ use std::time::Instant;
 use tracing::{debug, info};
 use uuid::Uuid;
 
+lazy_static! {
+    static ref USER_INFO_REGEX: Regex =
+        Regex::new(r"(?s)<user information>(.*?)</user information>").unwrap();
+}
+
+// Changed: Added 'group_id' field, removed 'grouping' and 'emoji' fields
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Memory {
     pub id: Uuid,
@@ -21,10 +27,10 @@ pub struct Memory {
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub memory_prompt_id: Option<Uuid>,
-    pub grouping: Option<String>,
-    pub emoji: Option<String>,
+    pub group_id: Option<Uuid>
 }
 
+// Changed: Updated Default implementation to include group_id and remove grouping and emoji
 impl Default for Memory {
     fn default() -> Self {
         Memory {
@@ -35,23 +41,37 @@ impl Default for Memory {
             updated_at: Utc::now(),
             deleted_at: None,
             memory_prompt_id: None,
-            grouping: None,
-            emoji: None,
+            group_id: None, // Added group_id field
         }
     }
 }
-
-lazy_static! {
-    static ref USER_INFO_REGEX: Regex =
-        Regex::new(r"(?s)<user information>(.*?)</user information>").unwrap();
-}
-
 impl Memory {
+    // Changed: Removed grouping and emoji parameters, added group_id
+    pub fn new(
+        id: Uuid,
+        user_id: &str,
+        content: &str,
+        prompt_id: Option<&Uuid>,
+        created_at: Option<DateTime<Utc>>,
+        group_id: Option<&Uuid>,
+    ) -> Self {
+        Memory {
+            id,
+            user_id: user_id.to_string(),
+            created_at: created_at.unwrap_or_else(Utc::now),
+            updated_at: Utc::now(),
+            content: content.to_string(),
+            memory_prompt_id: prompt_id.copied(),
+            group_id: group_id.copied(),
+            ..Default::default()
+        }
+    }
+    
+    // Changed: Updated to use group_id instead of grouping
     pub async fn add_memory(
         pool: &PgPool,
         memory: &str,
-        grouping: Option<&str>,
-        emoji: Option<&str>,
+        group_id: Option<&Uuid>,
         user_id: &str,
         prompt_id: Option<&Uuid>,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
@@ -65,21 +85,19 @@ impl Memory {
             memory,
             prompt_id,
             Some(now_utc),
-            grouping,
-            emoji,
+            group_id
         );
 
         let memory = query_as!(
             Memory,
-            "INSERT INTO memories (id, user_id, created_at, updated_at, content, memory_prompt_id, grouping, emoji) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+            "INSERT INTO memories (id, user_id, created_at, updated_at, content, memory_prompt_id, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
             new_memory.id,
             new_memory.user_id,
             new_memory.created_at,
             new_memory.updated_at,
             new_memory.content,
             new_memory.memory_prompt_id,
-            new_memory.grouping,
-            new_memory.emoji
+            new_memory.group_id
         )
         .fetch_one(pool)
         .await?;
@@ -104,12 +122,12 @@ impl Memory {
         Ok(memory)
     }
 
+    // Changed: Updated to use group_id instead of grouping and emoji
     pub async fn update_memory(
         pool: &PgPool,
         memory_id: Uuid,
         new_memory: &str,
-        grouping: Option<&str>,
-        emoji: Option<&str>,
+        group_id: Option<&Uuid>,
         user_id: &str,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
     ) -> Result<Self> {
@@ -131,8 +149,7 @@ impl Memory {
         let updated_memory = Memory {
             content: new_memory.to_string(),
             updated_at: now_utc,
-            grouping: grouping.map(|g| g.to_string()),
-            emoji: emoji.map(|e| e.to_string()),
+            group_id: group_id.copied(),
             ..memory
         };
 
@@ -140,14 +157,13 @@ impl Memory {
             Memory,
             r#"
             UPDATE memories 
-            SET content = $1, updated_at = $2, grouping = $3, emoji = $4
-            WHERE id = $5 AND user_id = $6 AND deleted_at IS NULL
+            SET content = $1, updated_at = $2, group_id = $3
+            WHERE id = $4 AND user_id = $5 AND deleted_at IS NULL
             RETURNING *
             "#,
             updated_memory.content,
             updated_memory.updated_at,
-            updated_memory.grouping,
-            updated_memory.emoji,
+            updated_memory.group_id,
             updated_memory.id,
             updated_memory.user_id
         )
@@ -324,20 +340,16 @@ impl Memory {
         formatted_memories.trim_end().to_string()
     }
 
+    // Changed: Updated to use group_id instead of grouping
     pub fn format_grouped_memories(memories: &Vec<Memory>, with_id: bool) -> String {
         use std::collections::HashMap;
 
-        // Organize memories by grouping
-        let mut grouped_memories: HashMap<String, Vec<Memory>> = HashMap::new();
+        // Organize memories by group_id
+        let mut grouped_memories: HashMap<Option<Uuid>, Vec<Memory>> = HashMap::new();
 
         for memory in memories {
             grouped_memories
-                .entry(
-                    memory
-                        .grouping
-                        .clone()
-                        .unwrap_or_else(|| "Ungrouped".to_string()),
-                )
+                .entry(memory.group_id)
                 .or_default()
                 .push(memory.clone());
         }
@@ -345,10 +357,10 @@ impl Memory {
         // Format memories
         grouped_memories
             .iter()
-            .map(|(grouping, contents)| {
+            .map(|(group_id, contents)| {
                 format!(
                     "<memory group>\n{}\n{}\n</memory group>",
-                    grouping,
+                    group_id.map_or("Ungrouped".to_string(), |id| id.to_string()),
                     contents
                         .iter()
                         .map(|memory| if with_id {
@@ -365,26 +377,3 @@ impl Memory {
     }
 }
 
-impl Memory {
-    pub fn new(
-        id: Uuid,
-        user_id: &str,
-        content: &str,
-        prompt_id: Option<&Uuid>,
-        created_at: Option<DateTime<Utc>>,
-        grouping: Option<&str>,
-        emoji: Option<&str>,
-    ) -> Self {
-        Memory {
-            id,
-            user_id: user_id.to_string(),
-            created_at: created_at.unwrap_or_else(Utc::now),
-            updated_at: Utc::now(),
-            content: content.to_string(),
-            memory_prompt_id: prompt_id.copied(),
-            grouping: grouping.map(|g| g.to_string()),
-            emoji: emoji.map(|e| e.to_string()),
-            ..Default::default()
-        }
-    }
-}
