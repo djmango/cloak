@@ -57,6 +57,12 @@ impl MemoryGroup {
         emoji: &str,
         memory_groups_cache: &Cache<String, MemoryGroup>
     ) -> Result<Self> {
+        // Check if the group is already in the cache
+        if let Some(cached_group) = memory_groups_cache.get(name).await {
+            debug!("Memory group found in cache: {:?}", cached_group.id);
+            return Ok(cached_group);
+        }
+
         let now_utc = Utc::now();
         let group_id = Uuid::new_v4();
 
