@@ -168,7 +168,7 @@ async fn create_memory(
     let memory = Memory::add_memory(
         &app_state.pool,
         &req_body.content,
-        Some(&memory_group.id),
+        memory_group.as_ref().map(|g| &g.id),
         &authenticated_user.user_id,
         req_body.memory_prompt_id.as_ref(),
         &app_state.memory_cache,
@@ -216,7 +216,7 @@ async fn update_memory(
         &app_state.pool,
         memory_id.into_inner(),
         &req_body.content,
-        req_body.grouping_id.as_deref(),
+        None,
         &authenticated_user.user_id,
         &app_state.memory_cache,
     )
@@ -528,7 +528,7 @@ async fn process_memory_context(
     .await?;
 
     let formatted_memories =
-        process_formatted_memories(user_id, &formatted_content, memory_prompt_id).await?;
+        process_formatted_memories(&formatted_content).await?;
 
     let existing_memories =
         Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache).await?;
@@ -547,9 +547,7 @@ async fn process_memory_context(
 }
 
 async fn process_formatted_memories(
-    user_id: &str,
     formatted_content: &str,
-    memory_prompt_id: &Uuid,
 ) -> Result<Vec<(Uuid, String, String)>> {
     let memory_regex = regex::Regex::new(r"(?s)<memory>(.*?)</memory>").unwrap();
     let mut processed_memories = Vec::new();
@@ -571,7 +569,6 @@ async fn process_formatted_memories(
             }));
         }
     }
-
     Ok(processed_memories)
 }
 
@@ -613,7 +610,7 @@ async fn increment_memory(
     let formatted_memories = Memory::format_grouped_memories(existing_memories, format_with_id);
     let new_memories_str = new_memories
         .iter()
-        .map(|m| format!("- {}", m.content))
+        .map(|m| format!("- {}", m.2))
         .collect::<Vec<_>>()
         .join("\n\n");
     let prompt = Prompts::INCREMENT_MEMORY

@@ -1,12 +1,8 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use lazy_static::lazy_static;
 use moka::future::Cache;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
-use std::collections::HashMap;
-use std::time::Instant;
 use tracing::{debug, info};
 use uuid::Uuid;
 

@@ -1,24 +1,25 @@
--- Add migration script here
 -- Remove columns "grouping" and "emoji" from memories table
 ALTER TABLE memories
 DROP COLUMN IF EXISTS grouping,
 DROP COLUMN IF EXISTS emoji;
 
--- Add column group_id to memories table
-ALTER TABLE memories
-ADD COLUMN group_id UUID;
-
 -- Create memory_groups table
 CREATE TABLE memory_groups (
     id UUID PRIMARY KEY,
-    memory_id UUID NOT NULL,
     name TEXT NOT NULL,
     emoji TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
+
+-- Add column group_id to memories table as a foreign key
+ALTER TABLE memories
+ADD COLUMN group_id UUID,
+ADD CONSTRAINT fk_group
+    FOREIGN KEY (group_id)
+    REFERENCES memory_groups(id)
+    ON DELETE SET NULL;
 
 -- Create or replace the trigger function to update the updated_at field on updates
 CREATE OR REPLACE FUNCTION trigger_set_timestamp()
