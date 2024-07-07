@@ -5,15 +5,26 @@ use anyhow::Error;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::memory::Memory;
 use crate::models::{MemoryPrompt, Message};
+use crate::prompts::Prompts;
+use crate::types::{
+    AddMemoryPromptRequest, CreateMemoryRequest, DeleteAllMemoriesRequest, GenerateMemoriesRequest,
+    GetAllMemoriesQuery, UpdateMemoryRequest,
+};
+use crate::AppConfig;
+use crate::AppState;
+use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
-    ChatCompletionRequestMessage, 
-    ChatCompletionRequestUserMessageArgs, 
-    CreateChatCompletionRequestArgs, 
+    ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs,
+    CreateChatCompletionRequestArgs,
 };
 use async_openai::Client;
+use chrono::Utc;
+use futures::future::join_all;
+use moka::future::Cache;
 use serde_json::json;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, error};
 use uuid::Uuid;
@@ -31,8 +42,8 @@ use crate::types::{
 use crate::prompts::Prompts;
 use chrono::{DateTime, Utc};
 use tiktoken_rs::cl100k_base;
-use moka::future::Cache;
-use std::collections::HashMap;
+use tracing::{error, info};
+use uuid::Uuid;
 
 use lazy_static::lazy_static;
 use tokio::sync::Semaphore;
@@ -61,15 +72,24 @@ async fn call_fn(
             let new_memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
             let emoji = function_args.get("emoji").and_then(|e| e.as_str());
-            let updated_memory =
-                Memory::update_memory(pool, memory_id, new_memory, grouping, emoji, user_id, memory_cache).await?;
-            
+            let updated_memory = Memory::update_memory(
+                pool,
+                memory_id,
+                new_memory,
+                grouping,
+                emoji,
+                user_id,
+                memory_cache,
+            )
+            .await?;
+
             Ok(vec![updated_memory])
         }
         "delete_memory" => {
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
-            let deleted_memory = Memory::delete_memory(pool, memory_id, user_id, memory_cache).await?;
-            
+            let deleted_memory =
+                Memory::delete_memory(pool, memory_id, user_id, memory_cache).await?;
+
             Ok(vec![deleted_memory])
         }
         "parse_memories" => {
@@ -78,7 +98,16 @@ async fn call_fn(
 
             for memory in memory_strings {
                 memories.push(
-                    Memory::add_memory(pool, memory.as_str().unwrap(), None, None, user_id, Some(memory_prompt_id), memory_cache).await?
+                    Memory::add_memory(
+                        pool,
+                        memory.as_str().unwrap(),
+                        None,
+                        None,
+                        user_id,
+                        Some(memory_prompt_id),
+                        memory_cache,
+                    )
+                    .await?,
                 );
             }
 
@@ -96,7 +125,8 @@ pub async fn get_all_user_memories(
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
 ) -> Result<String, Error> {
     // Fetch all memories with a given memory prompt for the user
-    let user_memories = Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await?;
+    let user_memories =
+        Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
     Ok(formatted_memories)
@@ -109,23 +139,31 @@ async fn create_memory(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateMemoryRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let memory = Memory::add_memory(&app_state.pool, &req_body.content, req_body.grouping.as_deref(), req_body.emoji.as_deref(), &authenticated_user.user_id, req_body.memory_prompt_id, &app_state.memory_cache)
-        .await
-        .map_err(|e| {
-            error!("Failed to create memory: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
+    let memory = Memory::add_memory(
+        &app_state.pool,
+        &req_body.content,
+        req_body.grouping.as_deref(),
+        req_body.emoji.as_deref(),
+        &authenticated_user.user_id,
+        req_body.memory_prompt_id,
+        &app_state.memory_cache,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to create memory: {:?}", e);
+        actix_web::error::ErrorInternalServerError(e)
+    })?;
 
     Ok(HttpResponse::Ok().json(memory))
 }
 
 // read
-#[get("/get_all")]
+#[get("/")]
 async fn get_all_memories(
     app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
     info: web::Query<GetAllMemoriesQuery>,
-) -> Result<impl Responder, actix_web::Error> {
+) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
     let memories = Memory::get_all_memories(&app_state.pool, &info.user_id, info.memory_prompt_id, &app_state.memory_cache)
         .await
         .map_err(|e| {
@@ -138,9 +176,10 @@ async fn get_all_memories(
             let format_with_id = false;
             let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
             return Ok(HttpResponse::Ok().json(formatted_memories));
+            Ok(web::Json(formatted_memories))
         }
     }
-    Ok(HttpResponse::Ok().json(memories))
+    Ok(web::Json(memories))
 }
 
 // update
@@ -151,12 +190,20 @@ async fn update_memory(
     memory_id: web::Path<Uuid>,
     req_body: web::Json<UpdateMemoryRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let memory = Memory::update_memory(&app_state.pool, memory_id.into_inner(), &req_body.content, req_body.grouping.as_deref(), req_body.emoji.as_deref(), &authenticated_user.user_id, &app_state.memory_cache)
-        .await
-        .map_err(|e| {
-            error!("Failed to get memories: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
+    let memory = Memory::update_memory(
+        &app_state.pool,
+        memory_id.into_inner(),
+        &req_body.content,
+        req_body.grouping.as_deref(),
+        req_body.emoji.as_deref(),
+        &authenticated_user.user_id,
+        &app_state.memory_cache,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to get memories: {:?}", e);
+        actix_web::error::ErrorInternalServerError(e)
+    })?;
 
     Ok(HttpResponse::Ok().json(memory))
 }
@@ -168,12 +215,17 @@ async fn delete_memory(
     authenticated_user: AuthenticatedUser,
     memory_id: web::Path<Uuid>,
 ) -> Result<impl Responder, actix_web::Error> {
-    Memory::delete_memory(&app_state.pool, memory_id.into_inner(), &authenticated_user.user_id, &app_state.memory_cache)
-        .await
-        .map_err(|e| {
-            error!("Failed to get memories: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
+    Memory::delete_memory(
+        &app_state.pool,
+        memory_id.into_inner(),
+        &authenticated_user.user_id,
+        &app_state.memory_cache,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to get memories: {:?}", e);
+        actix_web::error::ErrorInternalServerError(e)
+    })?;
 
     Ok(HttpResponse::Ok().finish())
 }
@@ -184,19 +236,21 @@ async fn delete_all_memories(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<DeleteAllMemoriesRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-
     if !authenticated_user.is_admin() {
-        return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Unauthorized".to_string(),
+        ));
     }
 
     let user_id = req_body.user_id.clone();
 
-    let deleted_count = Memory::delete_all_memories(&app_state.pool, &user_id, &app_state.memory_cache)
-        .await
-        .map_err(|e| {
-            error!("Failed to delete all memories: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
+    let deleted_count =
+        Memory::delete_all_memories(&app_state.pool, &user_id, &app_state.memory_cache)
+            .await
+            .map_err(|e| {
+                error!("Failed to delete all memories: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
 
     Ok(HttpResponse::Ok().json(json!({ "deleted_count": deleted_count })))
 }
@@ -208,21 +262,19 @@ async fn add_memory_prompt(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<AddMemoryPromptRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
-
     if !authenticated_user.is_admin() {
-        return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Unauthorized".to_string(),
+        ));
     }
 
-    let memory_prompt = MemoryPrompt::new(
-        &app_state.pool,
-        &req_body.prompt,
-        req_body.example.clone(),
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to add memory prompt: {:?}", e);
-        actix_web::error::ErrorInternalServerError(e)
-    })?;
+    let memory_prompt =
+        MemoryPrompt::new(&app_state.pool, &req_body.prompt, req_body.example.clone())
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to add memory prompt: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
 
     Ok(HttpResponse::Ok().json(memory_prompt))
 }
@@ -234,9 +286,10 @@ pub async fn generate_memories_from_chat_history_endpoint(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<GenerateMemoriesRequest>,
 ) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
-
     if !authenticated_user.is_admin() {
-        return Err(actix_web::error::ErrorUnauthorized("Unauthorized".to_string()));
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Unauthorized".to_string(),
+        ));
     }
 
     let user_id = req_body.user_id.clone();
@@ -295,11 +348,14 @@ pub async fn generate_memories_from_chat_history(
 
     let samples_per_query = match samples_per_query {
         Some(n) => n,
-        None => 30
+        None => user_messages.len() as u32,
     };
 
     if user_messages.len() as u32 > max_samples {
-        user_messages = user_messages.into_iter().take(max_samples as usize).collect();
+        user_messages = user_messages
+            .into_iter()
+            .take(max_samples as usize)
+            .collect();
     }
 
     user_messages.reverse();
@@ -308,12 +364,15 @@ pub async fn generate_memories_from_chat_history(
     let mut start_index = 0;
 
     while start_index < user_messages.len() {
-        let end_index = std::cmp::min(start_index + samples_per_query as usize, user_messages.len());
+        let end_index = std::cmp::min(
+            start_index + samples_per_query as usize,
+            user_messages.len(),
+        );
         let sample_slice = user_messages[start_index..end_index].to_vec();
 
         let mut memory_ctxt = String::new();
         memory_ctxt.push_str("<chat_messages>\n");
-    
+
         for (i, msg) in sample_slice.iter().enumerate() {
             let message_content = format!(
                 "<message {}: {}>\n{}\n</message {}: {}>\n",
@@ -332,7 +391,7 @@ pub async fn generate_memories_from_chat_history(
 
         start_index += samples_per_query as usize;
     }
-        
+
     info!("Generated {} samples", generated_samples.len());
 
     let generated_memories = process_memory_context(&app_state, sem, &user_id, &generated_samples, memory_prompt_id.clone()).await?;
@@ -345,7 +404,7 @@ async fn process_memory_context(
     app_state: &web::Data<Arc<AppState>>,
     sem: Option<Arc<Semaphore>>,
     user_id: &str,
-    samples: &Vec<String>,
+    samples: &[String],
     memory_prompt_id: Uuid,
 ) -> Result<Vec<Memory>, Error> {
     let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
@@ -393,7 +452,15 @@ async fn process_memory_context(
             Ok(result_content) => {
                 let now_utc = Utc::now();
                 let memory_id = Uuid::new_v4();
-                let new_memory = Memory::new(memory_id, user_id, result_content.as_str(), Some(memory_prompt_id), Some(now_utc), None, None);
+                let new_memory = Memory::new(
+                    memory_id,
+                    user_id,
+                    result_content.as_str(),
+                    Some(memory_prompt_id),
+                    Some(now_utc),
+                    None,
+                    None,
+                );
                 generated_memories.push(new_memory);
             }
             Err(e) => error!("Error processing memory: {:?}", e),
@@ -404,12 +471,18 @@ async fn process_memory_context(
 
     let formatted_memories: String = Memory::format_memories(generated_memories);
 
-    let message_content = format!("{}\n\n{}", 
+    let message_content = format!(
+        "{}\n\n{}",
         Prompts::FORMATTING_MEMORY,
         serde_json::to_string(&formatted_memories).unwrap()
     );
 
-    let formatted_content = get_chat_completion(&app_state.keywords_client, "claude-3-5-sonnet-20240620", &message_content).await?;
+    let formatted_content = get_chat_completion(
+        &app_state.keywords_client,
+        "claude-3-5-sonnet-20240620",
+        &message_content,
+    )
+    .await?;
 
     let formatted_memories = process_formatted_memories( user_id, &formatted_content, memory_prompt_id).await?;
 
@@ -436,11 +509,7 @@ async fn process_formatted_memories(
             let memories: Vec<String> = lines
                 .filter_map(|line| {
                     let trimmed = line.trim();
-                    if trimmed.starts_with('-') {
-                        Some(trimmed[1..].trim().to_string())
-                    } else {
-                        None
-                    }
+                    trimmed.strip_prefix('-').map(|s| s.trim().to_string())
                 })
                 .collect();
 
@@ -720,17 +789,16 @@ async fn get_chat_completion(
     client: &Client<OpenAIConfig>,
     model: &str,
     content: &str,
-) -> Result<String, Error> {
-    let ai_messages: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestUserMessageArgs::default()
+) -> Result<String, actix_web::Error> {
+    let ai_messages: Vec<ChatCompletionRequestMessage> =
+        vec![ChatCompletionRequestUserMessageArgs::default()
             .content(content)
             .build()
             .map_err(|e| {
                 error!("Failed to build user message: {:?}", e);
                 e
             })?
-            .into(),
-    ];
+            .into()];
 
     let request = CreateChatCompletionRequestArgs::default()
         .model(model)

@@ -62,7 +62,7 @@ pub async fn sync_all(
         Memory,
         r#"
         SELECT * FROM memories
-        WHERE user_id = $1
+        WHERE user_id = $1 AND deleted_at IS NULL
         "#,
         user_id
     )
