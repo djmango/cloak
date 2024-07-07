@@ -169,21 +169,4 @@ impl Chat {
         debug!("Chat soft-deleted with id: {:?}", chat_id);
         Ok(())
     }
-
-    // Get all chats for a user
-    pub async fn get_chats_for_user(pool: &PgPool, user_id: &str) -> Result<Vec<Self>> {
-        // Select chats that have at least one message
-        let chats = query_as!(
-            Chat,
-            r#"
-            SELECT * FROM chats 
-            WHERE user_id = $1 
-            AND id IN (SELECT DISTINCT chat_id FROM messages)
-            "#,
-            user_id
-        )
-        .fetch_all(pool)
-        .await?;
-        Ok(chats)
-    }
 }

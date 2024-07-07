@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE memories \n            SET content = $1, updated_at = $2\n            WHERE id = $3 AND user_id = $4 AND deleted_at IS NULL\n            RETURNING *\n            ",
+  "query": "INSERT INTO memories (id, user_id, created_at, updated_at, content, memory_prompt_id, grouping, emoji) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
   "describe": {
     "columns": [
       {
@@ -37,14 +37,28 @@
         "ordinal": 6,
         "name": "memory_prompt_id",
         "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "grouping",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "emoji",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Text",
         "Timestamptz",
+        "Timestamptz",
+        "Text",
         "Uuid",
-        "Text"
+        "Varchar",
+        "Varchar"
       ]
     },
     "nullable": [
@@ -54,8 +68,10 @@
       false,
       false,
       true,
-      false
+      true,
+      true,
+      true
     ]
   },
-  "hash": "be358bdd657b780e4f091a6b55cd226141a09f1d76d605742b2fedc2945d7542"
+  "hash": "ff336958fc1616237057d511872e9dd800e85bdecc9ab4fb27fbfbcbe0895f22"
 }

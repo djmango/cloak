@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, user_id, created_at, updated_at, content, deleted_at, memory_prompt_id\n            FROM memories \n            WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL\n            ",
+  "query": "\n            SELECT *\n            FROM memories \n            WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL\n            ",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,16 @@
         "ordinal": 6,
         "name": "memory_prompt_id",
         "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "grouping",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "emoji",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -52,8 +62,10 @@
       false,
       false,
       true,
-      false
+      true,
+      true,
+      true
     ]
   },
-  "hash": "0711cae8755479f181885217e936ec507ec5ea314912097b28caeadf459f05de"
+  "hash": "0d336897c0bce36f1eb9c0effd9231a5506c0faa27421f57bcfd9cd87e10d6fc"
 }

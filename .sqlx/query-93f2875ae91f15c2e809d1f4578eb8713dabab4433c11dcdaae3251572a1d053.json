@@ -20,12 +20,17 @@
       },
       {
         "ordinal": 3,
-        "name": "upvotes",
-        "type_info": "Int4"
+        "name": "created_at",
+        "type_info": "Timestamptz"
       },
       {
         "ordinal": 4,
-        "name": "created_at",
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "deleted_at",
         "type_info": "Timestamptz"
       }
     ],
@@ -37,7 +42,8 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
   "hash": "93f2875ae91f15c2e809d1f4578eb8713dabab4433c11dcdaae3251572a1d053"

@@ -4,7 +4,7 @@ use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionFunctionCall, ChatCompletionRequestMessage,
     ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartText,
-    ChatCompletionRequestUserMessageContent, ChatCompletionRequestSystemMessage,
+    ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessageContent,
     ChatCompletionResponseFormat, ChatCompletionStreamOptions, ChatCompletionTool,
     ChatCompletionToolChoiceOption, CreateChatCompletionRequest, InvisibilityMetadata,
 };
@@ -23,8 +23,8 @@ use utoipa::OpenApi;
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
-use crate::models::message::Message;
 use crate::models::memory::Memory;
+use crate::models::message::Message;
 use crate::AppState;
 
 #[derive(OpenApi)]
@@ -50,12 +50,13 @@ async fn create_system_prompt(
     start_time: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, actix_web::Error> {
     // Fetch user memories
-    let memories = Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
-        .await
-        .map_err(|e| {
-            error!("Failed to get memories: {:?}", e);
-            actix_web::error::ErrorInternalServerError(e)
-        })?;
+    let memories =
+        Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
+            .await
+            .map_err(|e| {
+                error!("Failed to get memories: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
 
     info!("got {} memories", memories.len());
     // Format memories
@@ -97,7 +98,6 @@ async fn create_system_prompt(
         (status = 500, description = "Internal Server Error")
     )
 )]
-
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
@@ -120,16 +120,20 @@ async fn chat(
             info!("System prompt created: {}", system_prompt);
 
             // Prepend the system prompt to the messages
-            request_args.messages.insert(0, ChatCompletionRequestMessage::System(
-                ChatCompletionRequestSystemMessage {
+            request_args.messages.insert(
+                0,
+                ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
                     content: system_prompt,
                     name: Some("system".to_string()),
-                }
-            ));
-        },
+                }),
+            );
+        }
         Err(e) => {
             // Log the error but continue without the system prompt
-            error!("Error creating system prompt: {:?}. Continuing without system prompt.", e);
+            error!(
+                "Error creating system prompt: {:?}. Continuing without system prompt.",
+                e
+            );
         }
     }
 
@@ -359,25 +363,20 @@ async fn chat(
                             }
                         };
 
-                        // If the metadata includes a regenerate_from_message_id, mark the messages after that
-                        // in the chat as regenerated
-                        match invisibility_metadata.as_ref() {
-                            Some(metadata) => {
-                                if let Some(regenerate_from_message_id) =
-                                    metadata.regenerate_from_message_id
+                        // If the metadata includes a regenerate_from_message_id, mark the messages after that in the chat as regenerated
+                        if let Some(metadata) = invisibility_metadata.as_ref() {
+                            if let Some(regenerate_from_message_id) =
+                                metadata.regenerate_from_message_id
+                            {
+                                if let Err(e) = Message::mark_regenerated_from_message_id(
+                                    &app_state.pool,
+                                    regenerate_from_message_id,
+                                )
+                                .await
                                 {
-                                    if let Err(e) = Message::mark_regenerated_from_message_id(
-                                        &app_state.pool,
-                                        regenerate_from_message_id,
-                                    )
-                                    .await
-                                    {
-                                        error!("Error marking chat as regenerated: {:?}", e);
-                                        // You might want to handle this error case more explicitly
-                                    }
+                                    error!("Error marking chat as regenerated: {:?}", e);
                                 }
                             }
-                            None => {} // Do nothing if invisibility_metadata is None
                         }
 
                         // Insert into db a message, the last OAI message (prompt). This should always be a user message
@@ -400,7 +399,6 @@ async fn chat(
                                     error!("Error creating message from OAI message: {:?}", e);
                                 }
                             };
-
                         } else {
                             error!("No messages found in request_args.messages");
                         }
@@ -435,3 +433,4 @@ async fn chat(
 
     Ok(response)
 }
+

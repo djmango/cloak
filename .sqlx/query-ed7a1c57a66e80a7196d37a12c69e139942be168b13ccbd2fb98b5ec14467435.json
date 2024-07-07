@@ -37,6 +37,16 @@
         "ordinal": 6,
         "name": "memory_prompt_id",
         "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "grouping",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "emoji",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -53,7 +63,9 @@
       false,
       false,
       true,
-      false
+      true,
+      true,
+      true
     ]
   },
   "hash": "ed7a1c57a66e80a7196d37a12c69e139942be168b13ccbd2fb98b5ec14467435"

@@ -1,5 +1,4 @@
 use crate::models::file::{File, Filetype};
-use actix_web::http::header::Date;
 use anyhow::Result;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
@@ -9,9 +8,9 @@ use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool, Type};
+use std::fmt;
 use utoipa::ToSchema;
 use uuid::Uuid;
-use std::fmt;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type, ToSchema, PartialEq, Eq)]
 #[sqlx(type_name = "role_enum", rename_all = "lowercase")] // SQL value name
@@ -267,55 +266,49 @@ impl Message {
         Ok(())
     }
 
-    pub async fn get_by_id(pool: &PgPool, message_id: Uuid) -> Result<Message> {
-        let query_str = r#"
-            SELECT * FROM messages WHERE id = $1
-        "#;
-
-        let row = query(query_str)
-            .bind(message_id)
-            .fetch_optional(pool)
-            .await?;
-
-        match row {
-            Some(row) => Ok(Message::from_row(&row)?),
-            None => Err(anyhow::anyhow!("Message not found")),
-        }
-    }
-
-    pub async fn get_latest_message_by_user_id(pool: &PgPool, user_id: &str) -> Result<Option<Message>> {
+    pub async fn get_latest_message_by_user_id(
+        pool: &PgPool,
+        user_id: &str,
+    ) -> Result<Option<Message>> {
         let query_str = r#"
             SELECT * FROM messages 
             WHERE user_id = $1
             ORDER BY created_at DESC
             LIMIT 1
         "#;
-    
+
         let message = sqlx::query_as::<_, Message>(query_str)
             .bind(user_id)
             .fetch_optional(pool)
             .await?;
-    
+
         Ok(message)
     }
 
     // Get all messages for a given user ID, optionally within a specified time range
-    pub async fn get_messages_by_user_id(pool: &PgPool, user_id: &str, range: Option<(DateTime<Utc>, DateTime<Utc>)>) -> Result<Vec<Message>> {
+    pub async fn get_messages_by_user_id(
+        pool: &PgPool,
+        user_id: &str,
+        range: Option<(DateTime<Utc>, DateTime<Utc>)>,
+    ) -> Result<Vec<Message>> {
         let query_str = match range {
-            Some(_) => r#"
+            Some(_) => {
+                r#"
                 SELECT * FROM messages 
                 WHERE user_id = $1 AND created_at BETWEEN $2 AND $3
                 ORDER BY created_at DESC
-            "#,
-            None => r#"
+            "#
+            }
+            None => {
+                r#"
                 SELECT * FROM messages 
                 WHERE user_id = $1
                 ORDER BY created_at DESC
-            "#,
+            "#
+            }
         };
 
-        let mut query = sqlx::query_as::<_, Message>(query_str)
-            .bind(user_id);
+        let mut query = sqlx::query_as::<_, Message>(query_str).bind(user_id);
 
         if let Some((start_time, end_time)) = range {
             query = query.bind(start_time).bind(end_time);
@@ -326,7 +319,7 @@ impl Message {
         Ok(messages)
     }
 
-    pub async fn upvote (pool: &PgPool, message_id: Uuid, user_id: &str) ->  Result<()> {
+    pub async fn upvote(pool: &PgPool, message_id: Uuid, user_id: &str) -> Result<()> {
         let query_str = r#"
             UPDATE messages
             SET upvoted = true
@@ -342,7 +335,7 @@ impl Message {
         Ok(())
     }
 
-    pub async fn downvote (pool: &PgPool, message_id: Uuid, user_id: &str) ->  Result<()> {
+    pub async fn downvote(pool: &PgPool, message_id: Uuid, user_id: &str) -> Result<()> {
         let query_str = r#"
         UPDATE messages
         SET upvoted = false
