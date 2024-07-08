@@ -8,7 +8,7 @@ use utoipa::OpenApi;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::file::Filetype;
 use crate::models::message::Role;
-use crate::models::{Chat, File, Memory, Message};
+use crate::models::{Chat, File, Memory, MemoryGroup, Message};
 use crate::types::AllResponse;
 use crate::AppState;
 
@@ -68,8 +68,23 @@ pub async fn sync_all(
     )
     .fetch_all(&app_state.pool);
 
-    let (chats_result, messages_result, files_result, memories_result) =
-        join!(chats_future, messages_future, files_future, memory_future);
+    // NOTE just sending all memory groups for now, in the future we might want to filter this
+    let memory_group_future = query_as!(
+        MemoryGroup,
+        r#"
+        SELECT * FROM memory_groups
+        WHERE deleted_at IS NULL
+        "#
+    )
+    .fetch_all(&app_state.pool);
+
+    let (chats_result, messages_result, files_result, memories_result, memory_groups_result) = join!(
+        chats_future,
+        messages_future,
+        files_future,
+        memory_future,
+        memory_group_future
+    );
 
     let chats = chats_result.map_err(|e| {
         error!("Failed to fetch chats: {:?}", e);
@@ -91,10 +106,16 @@ pub async fn sync_all(
         actix_web::error::ErrorInternalServerError(e)
     })?;
 
+    let memory_groups = memory_groups_result.map_err(|e| {
+        error!("Failed to fetch memory groups: {:?}", e);
+        actix_web::error::ErrorInternalServerError(e)
+    })?;
+
     Ok(web::Json(AllResponse {
         chats,
         messages,
         files,
         memories,
+        memory_groups,
     }))
 }
