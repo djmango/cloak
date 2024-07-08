@@ -73,8 +73,9 @@ pub async fn sync_all(
         MemoryGroup,
         r#"
         SELECT * FROM memory_groups
-        WHERE deleted_at IS NULL
-        "#
+        WHERE user_id = $1 AND deleted_at IS NULL
+        "#,
+        user_id
     )
     .fetch_all(&app_state.pool);
 
