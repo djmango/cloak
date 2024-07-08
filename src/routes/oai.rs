@@ -24,7 +24,7 @@ use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
 use crate::models::memory::Memory;
-use crate::models::message::Message;
+use crate::models::message::{Message, Role};
 use crate::AppState;
 
 #[derive(OpenApi)]
@@ -51,12 +51,17 @@ async fn create_system_prompt(
 ) -> Result<String, actix_web::Error> {
     // Fetch user memories
     let memories =
-        Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
-            .await
-            .map_err(|e| {
-                error!("Failed to get memories: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
+        Memory::get_all_memories(
+            &app_state.pool, 
+            user_id, 
+            None, 
+            &app_state.memory_cache
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to get memories: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
 
     info!("got {} memories", memories.len());
     // Format memories
@@ -64,8 +69,7 @@ async fn create_system_prompt(
     let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
 
     // Create the system prompt with datetime and memories
-    Ok(format!(
-        "You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
+    Ok(format!("You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
 
     Invisibility should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. 
 
@@ -77,8 +81,7 @@ async fn create_system_prompt(
     - Access multiple advanced LLMs like GPT-4, Claude-3.5 Sonnet, and Gemini Pro 1.5
     - Use \"Sidekick\" feature to analyze screen content and context
 
-    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below. 
-
+    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below:
     {}
 
     If the memory is pertinent to the user's query, Invisibility will use the information when answering it.",
@@ -304,7 +307,7 @@ async fn chat(
                 futures::future::ready(false)
             }
         })
-        .then({
+        .then({ // process each chunk one by one
             let response_content = Arc::clone(&response_content);
             move |item_result| {
                 let response_content = Arc::clone(&response_content);
@@ -334,7 +337,7 @@ async fn chat(
             error!("Error in chat completion stream: {:?}", e);
             e
         })
-        .chain(futures::stream::once({
+        .chain(futures::stream::once({ // runs after all chunks have been processed
             let response_content_clone = Arc::clone(&response_content);
 
             async move {
@@ -381,9 +384,46 @@ async fn chat(
 
                         // Insert into db a message, the last OAI message (prompt). This should always be a user message
                         if let Some(last_oai_message) = last_message_option {
+                             let (content, role, files) = match last_oai_message {
+                                ChatCompletionRequestMessage::User(user_message) => match user_message.content {
+                                    ChatCompletionRequestUserMessageContent::Text(text) => (text, Role::User, vec![]),
+                                    ChatCompletionRequestUserMessageContent::Array(array) => {
+                                        let mut concatenated_text = String::new();
+                                        let mut file_urls = Vec::new();
+                    
+                                        for part in &array {
+                                            match part {
+                                                ChatCompletionRequestMessageContentPart::Text(text_part) => {
+                                                    if !text_part.text.trim().is_empty() {
+                                                        concatenated_text.push_str(&text_part.text);
+                                                    }
+                                                }
+                                                ChatCompletionRequestMessageContentPart::ImageUrl(image_part) => {
+                                                    file_urls.push(image_part.image_url.url.clone());
+                                                }
+                                            }
+                                        }
+                                        (concatenated_text, Role::User, file_urls)
+                                    }
+                                },
+                                ChatCompletionRequestMessage::Assistant(assistant_message) => {
+                                    if let Some(content) = &assistant_message.content {
+                                        (content.clone(), Role::Assistant, vec![])
+                                    } else {
+                                        ("".to_string(), Role::Assistant, vec![])
+                                    }
+                                }
+                                _ => {
+                                    error!("Error parsing content, role, files from last OAI message: Unexpected message type");
+                                    ("".to_string(), Role::User, vec![]) // Default values
+                                }
+                            };
+
                             match Message::from_oai(
                                 &app_state.pool,
-                                last_oai_message.clone(),
+                                content,
+                                role,
+                                files,
                                 chat.id,
                                 &user_id.clone(),
                                 Some(model_id.clone()),
@@ -399,9 +439,13 @@ async fn chat(
                                     error!("Error creating message from OAI message: {:?}", e);
                                 }
                             };
+                            
+                            // Do real time memory here
+
                         } else {
                             error!("No messages found in request_args.messages");
                         }
+
 
                         if let Err(err) = Message::new(
                             &app_state.pool,

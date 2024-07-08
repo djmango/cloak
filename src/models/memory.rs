@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{debug, info};
 use uuid::Uuid;
+use crate::models::MemoryGroup;
 
 lazy_static! {
     static ref USER_INFO_REGEX: Regex =
@@ -28,6 +29,24 @@ pub struct Memory {
     pub deleted_at: Option<DateTime<Utc>>,
     pub memory_prompt_id: Option<Uuid>,
     pub group_id: Option<Uuid>
+}
+
+#[derive(sqlx::FromRow)]
+struct MemoryWithGroup {
+    #[sqlx(flatten)]
+    memory: Memory,
+    #[sqlx(flatten)]
+    group: MemoryGroup,
+}
+
+fn build_memory_with_group_query() -> sqlx::QueryBuilder<'static, sqlx::Postgres> {
+    sqlx::QueryBuilder::new(
+        "SELECT m.*, mg.id AS group_id, mg.name AS group_name, \
+         mg.description AS group_description, mg.created_at AS group_created_at, \
+         mg.updated_at AS group_updated_at \
+         FROM memories m \
+         LEFT JOIN memory_groups mg ON m.group_id = mg.id \
+         WHERE m.user_id = ")
 }
 
 // Changed: Updated Default implementation to include group_id and remove grouping and emoji
@@ -260,18 +279,20 @@ impl Memory {
         debug!("Memory soft-deleted with id: {:?}", memory_id);
         Ok(memory)
     }
+   
 
-    pub async fn get_all_memories(
+    pub async fn get_all_memories_groups(
         pool: &PgPool,
         user_id: &str,
         memory_prompt_id: Option<Uuid>,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
-    ) -> Result<Vec<Self>> {
+        memory_groups_cache: &Cache<String, MemoryGroup>,
+    ) -> Result<Vec<(MemoryGroup, Self)>> {
         let start = Instant::now();
 
         // Try to get memories from cache first
         if let Some(user_memories) = memory_cache.get(user_id).await {
-            let cached_memories: Vec<Self> = user_memories.values().cloned().collect();
+            let cached_memories: Vec<Memory> = user_memories.values().cloned().collect();
             let filtered_memories = match memory_prompt_id {
                 Some(prompt_id) => cached_memories
                     .into_iter()
@@ -280,40 +301,84 @@ impl Memory {
                 None => cached_memories,
             };
 
+            // Try to get memory groups from cache first
+            let mut group_map: HashMap<Uuid, MemoryGroup> = HashMap::new();
+            for memory in &filtered_memories {
+                if let Some(group_id) = memory.group_id {
+                    if let Some(group) = memory_groups_cache.get(&group_id.to_string()).await {
+                        group_map.insert(group_id, group);
+                    }
+                }
+            }
+
+            // Fetch any missing memory groups from the database
+            let missing_group_ids: Vec<Uuid> = filtered_memories
+                .iter()
+                .filter_map(|m| m.group_id)
+                .filter(|id| !group_map.contains_key(id))
+                .collect();
+
+            if !missing_group_ids.is_empty() {
+                let db_memory_groups: Vec<MemoryGroup> = sqlx::query_as::<_, MemoryGroup>(
+                    "SELECT * FROM memory_groups WHERE id = ANY($1)"
+                )
+                .bind(&missing_group_ids)
+                .fetch_all(pool)
+                .await?;
+
+                // Add fetched groups to cache
+                for group in &db_memory_groups {
+                    group_map.insert(group.id, group.clone());
+                    memory_groups_cache.insert(group.name.to_string(), group.clone()).await;
+                }
+            }
+
+            let result: Vec<(MemoryGroup, Self)> = filtered_memories
+                .into_iter()
+                .filter_map(|memory| {
+                    memory.group_id.and_then(|group_id| {
+                        group_map.get(&group_id).map(|group| (group.clone(), memory))
+                    })
+                })
+                .collect();
+
             let duration = start.elapsed();
-            info!("Query execution time: {:?}", duration);
+            info!("get_all_memories (cache) execution time: {:?}", duration);
             info!(
                 "Retrieved {} memories from cache for user: {}",
-                filtered_memories.len(),
+                result.len(),
                 user_id
             );
-            return Ok(filtered_memories);
+            return Ok(result);
         }
 
         // If not in cache, fetch from database
-        let result = query_as!(
-            Memory,
-            r#"
-            SELECT *
-            FROM memories 
-            WHERE user_id = $1 AND deleted_at IS NULL
-            "#,
-            user_id
-        )
-        .fetch_all(pool)
-        .await?;
+        let mut query = build_memory_with_group_query();
+        query.push_bind(user_id.to_owned())
+            .push(" AND m.deleted_at IS NULL");
+
+        let result = query.build_query_as::<MemoryWithGroup>()
+            .fetch_all(pool)
+            .await?;
 
         // Update cache with fetched memories
         let mut memory_map = HashMap::new();
-        for memory in &result {
+        let memories_with_groups: Vec<(MemoryGroup, Memory)> = result
+            .into_iter()
+            .map(|(r)| (r.group, r.memory))
+            .collect();
+
+        for (memory_group, memory) in &memories_with_groups {
             memory_map.insert(memory.id, memory.clone());
+            memory_groups_cache.insert(memory_group.name.clone(), memory_group.clone());
         }
+
         memory_cache.insert(user_id.to_string(), memory_map).await;
 
-        debug!("All memories found: {:?}", result);
+        debug!("All memories found: {:?}", memories_with_groups);
         let duration = start.elapsed();
-        info!("Query execution time: {:?}", duration);
-        Ok(result)
+        info!("get_all_memories (db fetch) query execution time: {:?}", duration);
+        Ok(memories_with_groups)
     }
 
     pub fn format_memories(memories: Vec<Self>) -> String {
@@ -338,6 +403,74 @@ impl Memory {
             }
         }
         formatted_memories.trim_end().to_string()
+    }
+
+    pub async fn get_all_memories(
+        pool: &PgPool,
+        user_id: &str,
+        memory_prompt_id: Option<Uuid>,
+        memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
+    ) -> Result<Vec<Self>> {
+        let start = Instant::now();
+
+        // Try to get memories from cache first
+        if let Some(user_memories) = memory_cache.get(user_id).await {
+            let cached_memories: Vec<Self> = user_memories.values().cloned().collect();
+            let filtered_memories = match memory_prompt_id {
+                Some(prompt_id) => cached_memories
+                    .into_iter()
+                    .filter(|memory| memory.memory_prompt_id == Some(prompt_id))
+                    .collect(),
+                None => cached_memories,
+            };
+
+            let duration = start.elapsed();
+            info!("get_all_memories (cache) execution time: {:?}", duration);
+            info!(
+                "Retrieved {} memories from cache for user: {}",
+                filtered_memories.len(),
+                user_id
+            );
+            return Ok(filtered_memories);
+        }
+
+        // If not in cache, fetch from database
+        let result = match memory_prompt_id {
+            Some(prompt_id) => query_as!(
+                Self,
+                r#"
+                SELECT * FROM memories
+                WHERE user_id = $1 AND deleted_at IS NULL AND memory_prompt_id = $2
+                "#,
+                user_id,
+                prompt_id
+            )
+            .fetch_all(pool)
+            .await?,
+            None => query_as!(
+                Self,
+                r#"
+                SELECT * FROM memories
+                WHERE user_id = $1 AND deleted_at IS NULL
+                "#,
+                user_id
+            )
+            .fetch_all(pool)
+            .await?,
+        };
+
+        // Update cache with fetched memories
+        let mut memory_map = HashMap::new();
+        for memory in &result {
+            memory_map.insert(memory.id, memory.clone());
+        }
+
+        memory_cache.insert(user_id.to_string(), memory_map).await;
+
+        debug!("All memories found: {:?}", result);
+        let duration = start.elapsed();
+        info!("get_all_memories (db fetch) query execution time: {:?}", duration);
+        Ok(result)
     }
 
     // Changed: Updated to use group_id instead of grouping
