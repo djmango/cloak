@@ -35,7 +35,7 @@ struct AppState {
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
     memory_cache: Cache<String, HashMap<Uuid, Memory>>,
-    memory_groups_cache: Cache<String, MemoryGroup>
+    memory_groups_cache: Cache<String, HashMap<String, MemoryGroup>>
 }
 
 #[derive(OpenApi)]
@@ -80,7 +80,10 @@ async fn main(
             .build(),
         memory_groups_cache: Cache::builder()
             .max_capacity(1024 * 1024 * 1024) // 1GB limit (in bytes)
-            .weigher(|_key, _value: &MemoryGroup| -> u32 {128})
+            .weigher(|_key, value: &HashMap<String, MemoryGroup>| -> u32 {
+                let estimated_memory_size = 128; // Assume each Memory object is roughly 1000 bytes
+                (value.len() * estimated_memory_size) as u32
+            })
             .build(),
     });
 

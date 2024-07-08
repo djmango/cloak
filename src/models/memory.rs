@@ -286,7 +286,7 @@ impl Memory {
         user_id: &str,
         memory_prompt_id: Option<Uuid>,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
-        memory_groups_cache: &Cache<String, MemoryGroup>,
+        memory_groups_cache: &Cache<String, HashMap<String, MemoryGroup>>,
     ) -> Result<Vec<(MemoryGroup, Self)>> {
         let start = Instant::now();
 
@@ -303,10 +303,12 @@ impl Memory {
 
             // Try to get memory groups from cache first
             let mut group_map: HashMap<Uuid, MemoryGroup> = HashMap::new();
-            for memory in &filtered_memories {
-                if let Some(group_id) = memory.group_id {
-                    if let Some(group) = memory_groups_cache.get(&group_id.to_string()).await {
-                        group_map.insert(group_id, group);
+            if let Some(user_groups) = memory_groups_cache.get(user_id).await {
+                for memory in &filtered_memories {
+                    if let Some(group_id) = memory.group_id {
+                        if let Some(group) = user_groups.values().find(|g| g.id == group_id) {
+                            group_map.insert(group_id, group.clone());
+                        }
                     }
                 }
             }
@@ -327,10 +329,12 @@ impl Memory {
                 .await?;
 
                 // Add fetched groups to cache
+                let mut user_groups = memory_groups_cache.get(user_id).await.unwrap_or_default();
                 for group in &db_memory_groups {
                     group_map.insert(group.id, group.clone());
-                    memory_groups_cache.insert(group.name.to_string(), group.clone()).await;
+                    user_groups.insert(group.name.clone(), group.clone());
                 }
+                memory_groups_cache.insert(user_id.to_string(), user_groups).await;
             }
 
             let result: Vec<(MemoryGroup, Self)> = filtered_memories
@@ -363,6 +367,7 @@ impl Memory {
 
         // Update cache with fetched memories
         let mut memory_map = HashMap::new();
+        let mut user_groups = HashMap::new();
         let memories_with_groups: Vec<(MemoryGroup, Memory)> = result
             .into_iter()
             .map(|(r)| (r.group, r.memory))
@@ -370,10 +375,11 @@ impl Memory {
 
         for (memory_group, memory) in &memories_with_groups {
             memory_map.insert(memory.id, memory.clone());
-            memory_groups_cache.insert(memory_group.name.clone(), memory_group.clone());
+            user_groups.insert(memory_group.name.clone(), memory_group.clone());
         }
 
         memory_cache.insert(user_id.to_string(), memory_map).await;
+        memory_groups_cache.insert(user_id.to_string(), user_groups).await;
 
         debug!("All memories found: {:?}", memories_with_groups);
         let duration = start.elapsed();

@@ -39,7 +39,7 @@ async fn call_fn(
     user_id: &str,
     memory_prompt_id: &Uuid,
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
-    memory_groups_cache: &Cache<String, MemoryGroup>,
+    memory_groups_cache: &Cache<String, HashMap<String, MemoryGroup>>,
 ) -> Result<Vec<Memory>> {
     let function_args: serde_json::Value = args.parse()?;
 
@@ -52,6 +52,7 @@ async fn call_fn(
             // create grouping
             let memory_group = MemoryGroup::add_memory_group(
                 pool,
+                user_id,
                 grouping.unwrap_or_default(),
                 emoji.unwrap_or_default(),
                 memory_groups_cache
@@ -75,6 +76,7 @@ async fn call_fn(
             let group_id = if let Some(grouping) = grouping {
                 if let Some(memory_group) = MemoryGroup::get_memory_group(
                     pool,
+                    user_id,
                     grouping,
                     memory_groups_cache
                 ).await? {
@@ -134,7 +136,6 @@ pub async fn get_all_user_memories(
     user_id: &str,
     memory_prompt_id: Option<Uuid>,
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
-    memory_groups_cache: &Cache<String, MemoryGroup>,
 ) -> Result<String> {
     // Fetch all memories with a given memory prompt for the user
     let user_memories = match Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await {
@@ -144,7 +145,6 @@ pub async fn get_all_user_memories(
             Vec::new() // Return an empty vector if there's an error
         }
     };
-        
     let formatted_memories = Memory::format_memories(user_memories);
     Ok(formatted_memories)
 }
@@ -161,6 +161,7 @@ async fn create_memory(
         (Some(group), Some(emoji)) => {
             Some(MemoryGroup::add_memory_group(
                 &app_state.pool,
+                &authenticated_user.user_id,
                 group,
                 emoji,
                 &app_state.memory_groups_cache
@@ -705,6 +706,7 @@ async fn process_memories(
 
             let emoji = get_emoji(
                 &app_state,
+                user_id,
                 grouping,
             ).await?;
 
@@ -741,10 +743,16 @@ async fn process_memories(
 
 async fn get_emoji(
     app_state: &web::Data<Arc<AppState>>,
+    user_id: &str,
     grouping: &str,
 ) -> Result<String> {
     // First, check for existing emoji in the memory groups cache
-    if let Some(existing_group) = MemoryGroup::get_memory_group(&app_state.pool, grouping, &app_state.memory_groups_cache).await? {
+    if let Some(existing_group) = MemoryGroup::get_memory_group(
+        &app_state.pool, 
+        user_id,
+        grouping, 
+        &app_state.memory_groups_cache
+    ).await? {
         info!(
             "Using existing emoji '{}' for grouping '{}'",
             existing_group.emoji, grouping

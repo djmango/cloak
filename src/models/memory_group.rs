@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::{query_as, FromRow, PgPool};
 use tracing::{debug, info};
@@ -9,6 +10,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MemoryGroup {
     pub id: Uuid,
+    pub user_id: String,
     pub name: String,
     pub emoji: String,
     pub created_at: DateTime<Utc>,
@@ -20,6 +22,7 @@ impl Default for MemoryGroup {
     fn default() -> Self {
         MemoryGroup {
             id: Uuid::new_v4(),
+            user_id: String::new(),
             name: String::new(),
             emoji: String::new(),
             created_at: Utc::now(),
@@ -31,7 +34,8 @@ impl Default for MemoryGroup {
 
 impl MemoryGroup {
     pub fn new(
-        id: Uuid, 
+        id: Uuid,
+        user_id: &str,
         name: &str, 
         emoji: &str, 
         created_at: Option<DateTime<Utc>>
@@ -39,6 +43,7 @@ impl MemoryGroup {
         let now = created_at.unwrap_or_else(Utc::now);
         MemoryGroup {
             id,
+            user_id: user_id.to_string(),
             name: name.to_string(),
             emoji: emoji.to_string(),
             created_at: now,
@@ -49,14 +54,17 @@ impl MemoryGroup {
 
     pub async fn add_memory_group(
         pool: &PgPool,
+        user_id: &str,
         name: &str,
         emoji: &str,
-        memory_groups_cache: &Cache<String, MemoryGroup>
+        memory_groups_cache: &Cache<String, HashMap<String, MemoryGroup>>
     ) -> Result<Self> {
         // Check if the group is already in the cache
-        if let Some(cached_group) = memory_groups_cache.get(name).await {
-            debug!("Memory group found in cache: {:?}", cached_group.id);
-            return Ok(cached_group);
+        if let Some(user_memory_groups) = memory_groups_cache.get(user_id).await {
+            if let Some(cached_group) = user_memory_groups.get(name) {
+                debug!("Memory group found in cache: {:?}", cached_group.id);
+                return Ok(cached_group.clone());
+            }
         }
 
         let now_utc = Utc::now();
@@ -64,6 +72,7 @@ impl MemoryGroup {
 
         let new_group = MemoryGroup::new(
             group_id,
+            user_id,
             name,
             emoji,
             Some(now_utc),
@@ -71,8 +80,9 @@ impl MemoryGroup {
 
         let group = query_as!(
             MemoryGroup,
-            "INSERT INTO memory_groups (id, name, emoji, created_at, updated_at) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "INSERT INTO memory_groups (id, user_id, name, emoji, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
             new_group.id,
+            new_group.user_id,
             new_group.name,
             new_group.emoji,
             new_group.created_at,
@@ -82,8 +92,28 @@ impl MemoryGroup {
         .await?;
 
         // Update the cache with the new memory group
-        debug!("Updating cache for new memory group: {:?}", group.id);
-        memory_groups_cache.insert(group.name.clone(), group.clone()).await;
+        info!("Updating cache for new memory group: {:?}", group.id);
+        if let Some(user_memory_groups) = memory_groups_cache.get(&group.user_id).await {
+            let mut updated_user_memory_groups = user_memory_groups.clone();
+            updated_user_memory_groups.insert(group.name.clone(), group.clone());
+            memory_groups_cache
+                .insert(group.user_id.clone(), updated_user_memory_groups)
+                .await;
+            info!(
+                "Added memory group {} to cache for user {}",
+                group.id, group.user_id
+            );
+        } else {
+            let mut new_user_groups = HashMap::new();
+            new_user_groups.insert(group.name.clone(), group.clone());
+            memory_groups_cache
+                .insert(group.user_id.clone(), new_user_groups)
+                .await;
+            info!(
+                "Created new cache entry for user {} with group {}",
+                group.user_id, group.id
+            );
+        }
 
         debug!("Memory group added: {:?}", group);
         Ok(group)
@@ -93,7 +123,7 @@ impl MemoryGroup {
     pub async fn delete_memory_group(
         pool: &PgPool,
         group_id: Uuid,
-        memory_groups_cache: &Cache<String, MemoryGroup>,
+        memory_groups_cache: &Cache<String, HashMap<String, MemoryGroup>>,
     ) -> Result<Self> {
         let group = query_as!(
             MemoryGroup,
@@ -110,11 +140,23 @@ impl MemoryGroup {
         .await?;
 
         // Remove the deleted group from the cache
-        memory_groups_cache.remove(&group.name).await;
-        info!(
-            "Removed memory group {} from cache",
-            group_id
-        );
+        info!("Updating cache for deleted memory group: {:?}", group.id);
+        if let Some(user_memory_groups) = memory_groups_cache.get(&group.user_id).await {
+            let mut updated_user_memory_groups = user_memory_groups.clone();
+            updated_user_memory_groups.remove(&group.name);
+            memory_groups_cache
+                .insert(group.name.to_string(), updated_user_memory_groups)
+                .await;
+            info!(
+                "Removed memory group {} from cache for user {}",
+                group.id, group.user_id
+            );
+        } else {
+            info!(
+                "No cache entry found for user {} when deleting group {}",
+                group.user_id, group.id
+            );
+        }
 
         debug!("Memory group soft-deleted with id: {:?}", group_id);
         Ok(group)
@@ -126,7 +168,7 @@ impl MemoryGroup {
         group_id: Uuid,
         new_name: &str,
         new_emoji: &str,
-        memory_groups_cache: &Cache<String, MemoryGroup>,
+        memory_groups_cache: &Cache<String, HashMap<String, MemoryGroup>>,
     ) -> Result<Self> {
         let now_utc = Utc::now();
 
@@ -165,10 +207,28 @@ impl MemoryGroup {
         .fetch_one(pool)
         .await?;
 
-        info!("Updating cache for memory group: {:?}", group_id);
-        // Remove the old entry and add the updated one
-        memory_groups_cache.remove(&group.name).await;
-        memory_groups_cache.insert(group.name.clone(), group.clone()).await;
+        // Update the cache for the updated memory group
+        info!("Updating cache for updated memory group: {:?}", group.id);
+        if let Some(user_memory_groups) = memory_groups_cache.get(&group.user_id).await {
+            let mut updated_user_memory_groups = user_memory_groups.clone();
+            updated_user_memory_groups.remove(&group.name);
+            updated_user_memory_groups.insert(group.name.clone(), group.clone());
+            memory_groups_cache
+                .insert(group.user_id.to_string(), updated_user_memory_groups)
+                .await;
+            info!(
+                "Updated memory group {} in cache for user {}",
+                group.id, group.user_id
+            );
+        } else {
+            let mut new_user_groups = HashMap::new();
+            new_user_groups.insert(group.name.clone(), group.clone());
+            memory_groups_cache.insert(group.user_id.clone(), new_user_groups).await;
+            info!(
+                "Created new cache entry for user {} with updated group {}",
+                group.user_id, group.id
+            );
+        }
 
         debug!("Memory group updated: {:?}", group);
         Ok(group)
@@ -176,13 +236,16 @@ impl MemoryGroup {
 
     pub async fn get_memory_group(
         pool: &PgPool,
+        user_id: &str,
         grouping: &str,
-        memory_groups_cache: &Cache<String, MemoryGroup>,
+        memory_groups_cache: &Cache<String, HashMap<String, MemoryGroup>>,
     ) -> Result<Option<Self>> {
-        // Try to get from cache first using grouping as key
-        if let Some(cached_group) = memory_groups_cache.get(grouping).await {
-            debug!("Memory group found in cache: {:?}", grouping);
-            return Ok(Some(cached_group));
+        // Try to get from cache first using user_id as key
+        if let Some(user_groups) = memory_groups_cache.get(user_id).await {
+            if let Some(cached_group) = user_groups.get(grouping) {
+                debug!("Memory group found in cache: {:?}", grouping);
+                return Ok(Some(cached_group.clone()));
+            }
         }
 
         // If not in cache, get from database
@@ -191,18 +254,37 @@ impl MemoryGroup {
             r#"
             SELECT *
             FROM memory_groups 
-            WHERE name = $1 AND deleted_at IS NULL
+            WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL
             LIMIT 1
             "#,
+            user_id,
             grouping
         )
         .fetch_optional(pool)
         .await?;
 
         if let Some(group) = group {
-            // Update cache with fetched group
-            memory_groups_cache.insert(group.name.clone(), group.clone()).await;
-            debug!("Memory group added to cache: {:?}", grouping);
+            info!("Updating cache for memory group: {:?}", group.id);
+            if let Some(user_memory_groups) = memory_groups_cache.get(&group.user_id).await {
+                let mut updated_user_memory_groups = user_memory_groups.clone();
+                updated_user_memory_groups.remove(&group.name);
+                updated_user_memory_groups.insert(group.name.clone(), group.clone());
+                memory_groups_cache
+                    .insert(group.user_id.to_string(), updated_user_memory_groups)
+                    .await;
+                info!(
+                    "Updated memory group {} in cache for user {}",
+                    group.id, group.user_id
+                );
+            } else {
+                let mut new_user_groups = HashMap::new();
+                new_user_groups.insert(group.name.clone(), group.clone());
+                memory_groups_cache.insert(group.user_id.clone(), new_user_groups).await;
+                info!(
+                    "Created new cache entry for user {} with group {}",
+                    group.user_id, group.id
+                );
+            }
             Ok(Some(group))
         } else {
             Ok(None)

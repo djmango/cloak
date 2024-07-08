@@ -6,6 +6,7 @@ DROP COLUMN IF EXISTS emoji;
 -- Create memory_groups table
 CREATE TABLE memory_groups (
     id UUID PRIMARY KEY,
+    user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     emoji TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
