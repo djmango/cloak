@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT * FROM memory_groups\n        WHERE deleted_at IS NULL\n        ",
+  "query": "\n            SELECT *\n            FROM memory_groups \n            WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL\n            LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -10,34 +10,43 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "user_id",
         "type_info": "Text"
       },
       {
         "ordinal": 2,
-        "name": "emoji",
+        "name": "name",
         "type_info": "Text"
       },
       {
         "ordinal": 3,
+        "name": "emoji",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "deleted_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Text"
+      ]
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -46,5 +55,5 @@
       true
     ]
   },
-  "hash": "c25d3e71b942844e29e208d3af8aa4748bb8bd51ef5b25894d3e288749842002"
+  "hash": "68322008fc57babb9c93c197f60f83cb9f2d732121d5df7e5b756a517f556ee7"
 }

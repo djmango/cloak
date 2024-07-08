@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE memory_groups \n            SET deleted_at = $1\n            WHERE id = $2 AND deleted_at IS NULL\n            RETURNING *\n            ",
+  "query": "\n            INSERT INTO memory_groups (\n                id, \n                user_id, \n                name, \n                emoji, \n                created_at, \n                updated_at\n            ) \n            VALUES ($1, $2, $3, $4, $5, $6) \n            RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -41,8 +41,12 @@
     ],
     "parameters": {
       "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
         "Timestamptz",
-        "Uuid"
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -55,5 +59,5 @@
       true
     ]
   },
-  "hash": "736e697b39ac63dd7827d9f2ea3e9ea60232a85bc69a17efd2383309a8886df3"
+  "hash": "7022dcb97441bbed24e10f8ce78b30d8aa5ac6b7ddf0d3843dcf4e8354fed134"
 }

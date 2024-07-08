@@ -10,26 +10,31 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "user_id",
         "type_info": "Text"
       },
       {
         "ordinal": 2,
-        "name": "emoji",
+        "name": "name",
         "type_info": "Text"
       },
       {
         "ordinal": 3,
+        "name": "emoji",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "deleted_at",
         "type_info": "Timestamptz"
       }
@@ -40,6 +45,7 @@
       ]
     },
     "nullable": [
+      false,
       false,
       false,
       false,
