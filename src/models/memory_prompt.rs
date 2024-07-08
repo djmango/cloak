@@ -41,8 +41,17 @@ impl MemoryPrompt {
         // Save prompt to database
         query!(
             r#"
-            INSERT INTO memory_prompts (id, prompt, created_at, updated_at, deleted_at, example) 
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO memory_prompts (
+                id,
+                prompt,
+                created_at,
+                updated_at,
+                deleted_at,
+                example
+            ) 
+            VALUES (
+                $1, $2, $3, $4, $5, $6
+            )
             "#,
             prompt.id,
             prompt.prompt,

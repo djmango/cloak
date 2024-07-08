@@ -1,9 +1,6 @@
 use crate::models::file::{File, Filetype};
 use anyhow::Result;
-use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestUserMessageContent, InvisibilityMetadata,
-};
+use async_openai::types::{InvisibilityMetadata};
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
