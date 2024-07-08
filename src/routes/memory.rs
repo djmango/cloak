@@ -134,12 +134,18 @@ pub async fn get_all_user_memories(
     user_id: &str,
     memory_prompt_id: Option<Uuid>,
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
+    memory_groups_cache: &Cache<String, MemoryGroup>,
 ) -> Result<String> {
     // Fetch all memories with a given memory prompt for the user
-    let user_memories =
-        Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await?;
+    let user_memories = match Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await {
+        Ok(memories) => memories,
+        Err(e) => {
+            error!("Failed to fetch existing memories: {:?}", e);
+            Vec::new() // Return an empty vector if there's an error
+        }
+    };
+        
     let formatted_memories = Memory::format_memories(user_memories);
-
     Ok(formatted_memories)
 }
 
@@ -183,18 +189,18 @@ async fn create_memory(
     Ok(web::Json(memory))
 }
 
-// read
 #[get("/")]
-async fn get_all_memories(
+async fn get_all_memories_groups(
     app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
     info: web::Query<GetAllMemoriesQuery>,
-) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
-    let memories = Memory::get_all_memories(
+) -> Result<web::Json<Vec<(MemoryGroup, Memory)>>, actix_web::Error> {
+    let memories_with_groups = Memory::get_all_memories_groups(
         &app_state.pool,
         &authenticated_user.user_id,
         info.memory_prompt_id,
         &app_state.memory_cache,
+        &app_state.memory_groups_cache
     )
     .await
     .map_err(|e| {
@@ -202,7 +208,7 @@ async fn get_all_memories(
         actix_web::error::ErrorInternalServerError(e)
     })?;
 
-    Ok(web::Json(memories))
+    Ok(web::Json(memories_with_groups))
 }
 
 // update
@@ -531,11 +537,19 @@ async fn process_memory_context(
     let formatted_memories =
         process_formatted_memories(&formatted_content).await?;
 
-    let existing_memories =
-        Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache).await?;
-
+    let existing_memories = match Memory::get_all_memories(
+        &app_state.pool,
+        user_id,
+        None,
+        &app_state.memory_cache,
+    ).await {
+        Ok(memories) => memories,
+        Err(e) => {
+            error!("Failed to fetch existing memories: {:?}", e);
+            Vec::new() // Return an empty vector if there's an error
+        }
+    };
     // if no existing memories, skip
-
     increment_memory(
         app_state,
         user_id,
@@ -691,7 +705,6 @@ async fn process_memories(
 
             let emoji = get_emoji(
                 &app_state,
-                user_id,
                 grouping,
             ).await?;
 
@@ -728,7 +741,6 @@ async fn process_memories(
 
 async fn get_emoji(
     app_state: &web::Data<Arc<AppState>>,
-    user_id: &str,
     grouping: &str,
 ) -> Result<String> {
     // First, check for existing emoji in the memory groups cache

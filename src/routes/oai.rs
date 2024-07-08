@@ -51,12 +51,17 @@ async fn create_system_prompt(
 ) -> Result<String, actix_web::Error> {
     // Fetch user memories
     let memories =
-        Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
-            .await
-            .map_err(|e| {
-                error!("Failed to get memories: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
+        Memory::get_all_memories(
+            &app_state.pool, 
+            user_id, 
+            None, 
+            &app_state.memory_cache
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to get memories: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
 
     info!("got {} memories", memories.len());
     // Format memories
@@ -64,8 +69,7 @@ async fn create_system_prompt(
     let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
 
     // Create the system prompt with datetime and memories
-    Ok(format!(
-        "You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
+    Ok(format!("You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
 
     Invisibility should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. 
 
@@ -77,8 +81,7 @@ async fn create_system_prompt(
     - Access multiple advanced LLMs like GPT-4, Claude-3.5 Sonnet, and Gemini Pro 1.5
     - Use \"Sidekick\" feature to analyze screen content and context
 
-    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below. 
-
+    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below:
     {}
 
     If the memory is pertinent to the user's query, Invisibility will use the information when answering it.",

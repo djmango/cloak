@@ -88,7 +88,6 @@ async fn main(
     let app_state_clone: Arc<AppState> = app_state.clone();
     let yesterday: chrono::prelude::DateTime<Utc> = Utc::now() - chrono::Duration::days(1);
     let semaphore = Arc::new(Semaphore::new(1000));
-    /*
     let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
         let app_state: Arc<AppState> = app_state_clone.clone();
         let semaphore = semaphore.clone();
@@ -130,10 +129,8 @@ async fn main(
         })
     })
     .unwrap();
-    // ... existing code ...
     scheduler.add(job).await.unwrap();
     scheduler.start().await.unwrap();
-    */
     let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {
@@ -183,7 +180,7 @@ async fn main(
                         .service(routes::memory::generate_memories_from_chat_history_endpoint)
                         .service(routes::memory::add_memory_prompt)
                         .service(routes::memory::create_memory)
-                        .service(routes::memory::get_all_memories)
+                        .service(routes::memory::get_all_memories_groups)
                         .service(routes::memory::update_memory)
                         .service(routes::memory::delete_memory)
                         .service(routes::memory::delete_all_memories),
