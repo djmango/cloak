@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT *\n            FROM memories \n            WHERE user_id = $1 AND deleted_at IS NULL\n            ",
+  "query": "\n            UPDATE memory_groups \n            SET deleted_at = $1\n            WHERE id = $2 AND deleted_at IS NULL\n            RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -10,43 +10,34 @@
       },
       {
         "ordinal": 1,
-        "name": "user_id",
+        "name": "name",
         "type_info": "Text"
       },
       {
         "ordinal": 2,
+        "name": "emoji",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "updated_at",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 4,
-        "name": "content",
-        "type_info": "Text"
       },
       {
         "ordinal": 5,
         "name": "deleted_at",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 6,
-        "name": "memory_prompt_id",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 7,
-        "name": "group_id",
-        "type_info": "Uuid"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Timestamptz",
+        "Uuid"
       ]
     },
     "nullable": [
@@ -55,10 +46,8 @@
       false,
       false,
       false,
-      true,
-      true,
       true
     ]
   },
-  "hash": "56e4e7f64dbaca712fe9238bb497b800598fe129f40746e821edf281d9cd7534"
+  "hash": "736e697b39ac63dd7827d9f2ea3e9ea60232a85bc69a17efd2383309a8886df3"
 }
