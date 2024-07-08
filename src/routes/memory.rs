@@ -46,8 +46,8 @@ async fn call_fn(
     match name {
         "create_memory" => {
             let memory = function_args["memory"].as_str().unwrap();
-            let grouping = function_args.get("grouping").and_then(|g| g.as_str());
-            let emoji = function_args.get("emoji").and_then(|e| e.as_str());
+            let emoji  = function_args.get("emoji").and_then(|g| g.as_str());
+            let grouping  = function_args.get("grouping").and_then(|g| g.as_str());
 
             // create grouping
             let memory_group = MemoryGroup::add_memory_group(
@@ -72,18 +72,19 @@ async fn call_fn(
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
             let new_memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
-
             let group_id = if let Some(grouping) = grouping {
-                let memory_group = MemoryGroup::get_memory_group(
+                if let Some(memory_group) = MemoryGroup::get_memory_group(
                     pool,
-                    Uuid::parse_str(grouping)?,
+                    grouping,
                     memory_groups_cache
-                ).await?;
-                Some(memory_group.id)
+                ).await? {
+                    Some(memory_group.id)
+                } else {
+                    None
+                }
             } else {
                 None
             };
-
             let updated_memory = Memory::update_memory(
                 pool,
                 memory_id,
@@ -613,6 +614,7 @@ async fn increment_memory(
         .map(|m| format!("- {}", m.2))
         .collect::<Vec<_>>()
         .join("\n\n");
+
     let prompt = Prompts::INCREMENT_MEMORY
         .replace("{0}", &new_memories_str)
         .replace("{1}", &formatted_memories);
@@ -651,6 +653,7 @@ async fn increment_memory(
         &memories_to_update,
     )
     .await?;
+
     let added_memories = process_memories(
         app_state,
         "create_memory",
@@ -660,6 +663,7 @@ async fn increment_memory(
         &memories_to_add,
     )
     .await?;
+
     let updated_memory_count = updated_memories.len();
     let added_memory_count = added_memories.len();
     let new_total_count = existing_memory_count + added_memory_count;
@@ -683,18 +687,18 @@ async fn process_memories(
         let app_state = app_state.clone();
         let sem = sem.clone();
         async move {
-            let (memory_id, group_id, content) = memory;
+            let (memory_id, grouping, content) = memory;
 
             let emoji = get_emoji(
                 &app_state,
                 user_id,
-                group_id,
+                grouping,
             ).await?;
 
             let args = json!({
                 "memory_id": memory_id,
                 "memory": content,
-                "group_id": group_id,
+                "grouping": grouping,
                 "emoji": emoji
             })
             .to_string();
@@ -728,14 +732,13 @@ async fn get_emoji(
     grouping: &str,
 ) -> Result<String> {
     // First, check for existing emoji in the memory groups cache
-    if let Some(existing_emoji) = app_state.memory_groups_cache.get(grouping).await {
+    if let Some(existing_group) = MemoryGroup::get_memory_group(&app_state.pool, grouping, &app_state.memory_groups_cache).await? {
         info!(
             "Using existing emoji '{}' for grouping '{}'",
-            existing_emoji.emoji, grouping
+            existing_group.emoji, grouping
         );
-        return Ok(existing_emoji.emoji);
+        return Ok(existing_group.emoji);
     }
-
     // If no existing emoji, generate a new one
     let message_content = format!("{}\n\n{}", Prompts::EMOJI_MEMORY, grouping);
     let emoji_response = get_chat_completion(

@@ -20,7 +20,6 @@ pub struct GetAllMemoriesQuery {
 #[derive(Deserialize)]
 pub struct UpdateMemoryRequest {
     pub content: String,
-    pub group_id: Uuid 
 }
 
 #[derive(Deserialize, ToSchema)]

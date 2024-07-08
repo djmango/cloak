@@ -89,6 +89,7 @@ impl MemoryGroup {
         Ok(group)
     }
 
+    #[allow(dead_code)]
     pub async fn delete_memory_group(
         pool: &PgPool,
         group_id: Uuid,
@@ -119,6 +120,7 @@ impl MemoryGroup {
         Ok(group)
     }
 
+    #[allow(dead_code)]
     pub async fn update_memory_group(
         pool: &PgPool,
         group_id: Uuid,
@@ -174,13 +176,13 @@ impl MemoryGroup {
 
     pub async fn get_memory_group(
         pool: &PgPool,
-        group_id: Uuid,
+        grouping: &str,
         memory_groups_cache: &Cache<String, MemoryGroup>,
-    ) -> Result<Self> {
-        // Try to get from cache first
-        if let Some(cached_group) = memory_groups_cache.iter().find(|(_, v)| v.id == group_id) {
-            debug!("Memory group found in cache: {:?}", group_id);
-            return Ok(cached_group.1.clone());
+    ) -> Result<Option<Self>> {
+        // Try to get from cache first using grouping as key
+        if let Some(cached_group) = memory_groups_cache.get(grouping).await {
+            debug!("Memory group found in cache: {:?}", grouping);
+            return Ok(Some(cached_group));
         }
 
         // If not in cache, get from database
@@ -189,17 +191,21 @@ impl MemoryGroup {
             r#"
             SELECT *
             FROM memory_groups 
-            WHERE id = $1 AND deleted_at IS NULL
+            WHERE name = $1 AND deleted_at IS NULL
+            LIMIT 1
             "#,
-            group_id
+            grouping
         )
-        .fetch_one(pool)
+        .fetch_optional(pool)
         .await?;
 
-        // Update cache with fetched group
-        memory_groups_cache.insert(group.name.clone(), group.clone()).await;
-        debug!("Memory group added to cache: {:?}", group_id);
-
-        Ok(group)
+        if let Some(group) = group {
+            // Update cache with fetched group
+            memory_groups_cache.insert(group.name.clone(), group.clone()).await;
+            debug!("Memory group added to cache: {:?}", grouping);
+            Ok(Some(group))
+        } else {
+            Ok(None)
+        }
     }
 }

@@ -80,7 +80,7 @@ async fn main(
             .build(),
         memory_groups_cache: Cache::builder()
             .max_capacity(1024 * 1024 * 1024) // 1GB limit (in bytes)
-            .weigher(|_key, _value: &MemoryGroup| -> u32 {return 128})
+            .weigher(|_key, _value: &MemoryGroup| -> u32 {128})
             .build(),
     });
 
@@ -88,12 +88,13 @@ async fn main(
     let app_state_clone: Arc<AppState> = app_state.clone();
     let yesterday: chrono::prelude::DateTime<Utc> = Utc::now() - chrono::Duration::days(1);
     let semaphore = Arc::new(Semaphore::new(1000));
-    // ... existing code ...
+    /*
     let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
         let app_state: Arc<AppState> = app_state_clone.clone();
         let semaphore = semaphore.clone();
         Box::pin(async move {
             let all_users = User::get_all(&app_state.pool).await.unwrap();
+
             info!("All users: {:?}", all_users.len());
 
             let futures: Vec<_> = all_users
@@ -108,7 +109,7 @@ async fn main(
                             &web::Data::new(app_state),
                             Some(semaphore),
                             &user_id,
-                            &Uuid::parse_str("b66ebb74-09c2-4c67-bf99-52c05e7dbe44").unwrap(),
+                            &Uuid::parse_str("bb324e6e-de12-4078-bd1c-ebc9d934b535").unwrap(),
                             None,
                             None,
                             Some((yesterday, Utc::now())),
@@ -132,6 +133,7 @@ async fn main(
     // ... existing code ...
     scheduler.add(job).await.unwrap();
     scheduler.start().await.unwrap();
+    */
     let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {

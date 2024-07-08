@@ -9,10 +9,10 @@ from datetime import datetime, timedelta
 
 def get_jwt_token():
     # put ur jwt here
-    return 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyXzAxSFJCSjhGVlAzSlQyOERFV1hONkpQS0Y1IiwiZXhwIjoxNzIyODk2Nzk1LCJpYXQiOjE3MTk4NzI3OTV9.dBw8tb5_6Gmq58pAs75A6tAyPkHWgnrxk123MMLihmQ'
+    return 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyXzAxSFJCSjhGVlAzSlQyOERFV1hONkpQS0Y1IiwiZXhwIjoxNzIzNDM0NDUxLCJpYXQiOjE3MjA0MTA0NTF9.BUTV6emjv_sny-wc_rZpUzyskxCsfeNEV7bX2HeFbhI'
 
 def delete_all_memories(base_url, user_id):
-    endpoint = f"{base_url}/memory/delete_all"
+    endpoint = f"{base_url}/memories/delete_all"
     token = get_jwt_token()
     payload = {"user_id": user_id}
     headers = {
@@ -24,7 +24,7 @@ def delete_all_memories(base_url, user_id):
     return response.json()
 
 def add_memory(base_url, prompt, id=None):
-    endpoint = f"{base_url}/memory/add_memory_prompt"
+    endpoint = f"{base_url}/memories/add_memory_prompt"
     # Prepare the payload
     token = get_jwt_token()
     print("adding memory")
@@ -53,7 +53,7 @@ def add_memory(base_url, prompt, id=None):
 
 # Modify this function to include the JWT token
 def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=1000, samples_per_query=30, range=None):
-    endpoint = f"{base_url}/memory/generate_from_chat"
+    endpoint = f"{base_url}/memories/generate_from_chat"
     # Get JWT token
     token = get_jwt_token()
     
@@ -96,7 +96,7 @@ def count_memory_tokens(memories):
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
     return total_tokens
 
-def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=14):
+def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=10):
     now = datetime.utcnow()
     # Ensure logs directory exists
     log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')
@@ -129,7 +129,7 @@ def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=14):
     print("All test cases completed.")
 
 def get_all(base_url, user_id, memory_prompt_id=None, format=False):
-    endpoint = f"{base_url}/memory/get_all"
+    endpoint = f"{base_url}/memories/get_all"
     token = get_jwt_token()
     params = {"user_id": user_id}  # Add user_id to the params
     if memory_prompt_id:
@@ -166,18 +166,13 @@ def log_response(test_case, response, log_dir):
             log_file.write(f"Test case: {test_case}\nStatus Code: {response.status_code}\n")
             memories = response.json()
             for memory in memories:
-                log_file.write(f'{memory["content"]},{memory["grouping"]},{memory["emoji"]}\n')
-
-# on avg adding 10 memories per day
-# begin ~30 memories
-# over month, 300 memories
-# over year, 3600 memories
-# this is why long term mem is needed
+                log_file.write(f'{memory["content"]},{memory["group_id"]}\n')
 
 if __name__ == '__main__':
+    cwd = os.path.dirname(os.path.realpath(__file__))
     base_url = "http://localhost:8000"
     user_ids = ['user_01HRBJ8FVP3JT28DEWXN6JPKF5', 'user_01HY5EW9Z5XVE34GZXKH4NC2Y1']
-    memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
+    memory_prompt_id = 'bb324e6e-de12-4078-bd1c-ebc9d934b535'
     for user_id in user_ids:
         delete_all_memories(base_url, user_id)
         test_memory_increment(base_url, user_id, memory_prompt_id)
