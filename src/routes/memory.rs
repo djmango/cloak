@@ -1,7 +1,7 @@
 // routes/memory.rs
 
 use actix_web::{delete, get, post, put, web, HttpResponse};
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs,
@@ -15,7 +15,7 @@ use moka::future::Cache;
 use regex::Regex;
 use serde_json::json;
 use sqlx::PgPool;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tiktoken_rs::cl100k_base;
 use tokio::sync::Semaphore;
@@ -347,6 +347,11 @@ pub async fn generate_memories_from_chat_history_endpoint(
     })
 }
 
+lazy_static! {
+    static ref max_sample_toks: usize = 50000;
+    static ref long_ctxt_tokens: usize = 15000;
+}
+
 pub async fn generate_memories_from_chat_history(
     app_state: &web::Data<Arc<AppState>>,
     sem: Option<Arc<Semaphore>>,
@@ -405,36 +410,91 @@ pub async fn generate_memories_from_chat_history(
 
     user_messages.reverse();
 
-    let mut generated_samples: Vec<String> = Vec::new();
-    let mut start_index = 0;
+    let estimate_token_count = |text: &str| text.chars().count() / 4;
+    let bpe = cl100k_base().context("Failed to initialize tokenizer");
+    let mut msgs_queue: VecDeque<Message> = VecDeque::from(user_messages.clone());
+    let mut generated_samples = Vec::new();
+    let mut memory_content = String::new();
+    let mut i = 0;
+    let mut sample_toks = 0;
 
-    while start_index < user_messages.len() {
-        let end_index = std::cmp::min(
-            start_index + samples_per_query as usize,
-            user_messages.len(),
-        );
-        let sample_slice = user_messages[start_index..end_index].to_vec();
+    info!("Begin processing samples of max {} tokens", *max_sample_toks);
 
-        let mut memory_ctxt = String::new();
-        memory_ctxt.push_str("<chat_messages>\n");
+    while !msgs_queue.is_empty() {
+        // push to samples and reset memory_content
 
-        for (i, msg) in sample_slice.iter().enumerate() {
+        if i >= samples_per_query {
+            i = 0;
+            info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+            memory_content += "</end chat>\n";
+            sample_toks = 0;
+            generated_samples.push(memory_content.clone());
+            memory_content = String::new();
+        }
+        if let Some(msg) = msgs_queue.pop_front() {
+            i+=1;
             let message_content = format!(
                 "<message {}: {}>\n{}\n</message {}: {}>\n",
                 i, msg.role, msg.text, i, msg.role
             );
-            memory_ctxt.push_str(&message_content);
+            let num_tokens = match &bpe {
+                Ok(tokenizer) => tokenizer.encode_with_special_tokens(&msg.text).len(),
+                Err(_) => estimate_token_count(&msg.text),
+            };
+            sample_toks += num_tokens;
+            if sample_toks > *max_sample_toks {
+                let remaining_tokens = *max_sample_toks - sample_toks;
+                let truncated_msg = if let Ok(tokenizer) = &bpe {
+                    let truncated_tokens = tokenizer.encode_with_special_tokens(
+                        &msg.text)[..remaining_tokens].to_vec();
+                    tokenizer.decode(truncated_tokens)
+                        .context("Failed to decode truncated message")
+                        .unwrap_or_else(|_| {
+                            msg.text.chars().take(remaining_tokens.clone() * 4).collect()
+                    })
+                } else {
+                    // Fallback to character-based truncation
+                    msg.text.chars().take(remaining_tokens * 4).collect()
+                };
+
+                let truncated_content = format!(
+                    "<message {}: {}>\n{}\n</message {}: {}>\n",
+                    i, msg.role, truncated_msg, i, msg.role
+                );
+                i = 0;
+                info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+                sample_toks = 0;
+                memory_content.push_str(&truncated_content);
+                generated_samples.push(memory_content.clone());
+                memory_content = String::new();
+                
+                // Push the remaining part of the message back to the queue
+                let remaining_msg = if let Ok(tokenizer) = &bpe {
+                    let remaining_tokens = tokenizer.encode_with_special_tokens(
+                        &msg.text)[remaining_tokens..].to_vec();
+                    let remaining_len = remaining_tokens.len();
+                    tokenizer.decode(remaining_tokens)
+                        .context("Failed to decode remaining message")
+                        .unwrap_or_else(|_| {
+                            msg.text.chars().skip(remaining_len * 4).collect()
+                        })
+                } else {
+                    // Fallback to character-based splitting
+                    msg.text.chars().skip(remaining_tokens * 4).collect()
+                };
+                msgs_queue.push_front(Message {
+                    text: remaining_msg,
+                    ..msg
+                });
+            } else {
+                memory_content.push_str(&message_content);
+            }
         }
-
-        memory_ctxt.push_str("</chat_messages>\n");
-
-        generated_samples.push(memory_ctxt);
-
-        if end_index == user_messages.len() {
-            break;
-        }
-
-        start_index += samples_per_query as usize;
+    }
+    // Don't forget to push the last memory_content if it's not empty
+    if !memory_content.is_empty() {
+        info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+        generated_samples.push(memory_content);
     }
 
     info!("Generated {} samples", generated_samples.len());
@@ -459,12 +519,13 @@ async fn process_memory_context(
     samples: &[String],
     memory_prompt_id: &Uuid,
 ) -> Result<Vec<Memory>> {
-    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to get memory prompt: {:?}", e);
-            e
-        })?;
+    let memory_prompt = match MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id).await {
+        Ok(prompt) => prompt,
+        Err(_) => {
+            // fallback to default generate memory prompt
+            MemoryPrompt::new(&app_state.pool, Prompts::GENERATE_MEMORY, None).await?
+        }
+    };
 
     let mut generated_memories: Vec<Memory> = Vec::new();
     // NOTE: using gpt-4o tokenizer since claude's is not open source
@@ -478,11 +539,12 @@ async fn process_memory_context(
         async move {
             info!("Processing sample {} of {}", index + 1, samples.len());
 
+            // place instructions at end of context if its over 15000 long
             // https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/long-context-tips
             let tokens = bpe.encode_with_special_tokens(sample);
             info!("Token count: {}", tokens.len());
 
-            let message_content = if tokens.len() > 15000 {
+            let message_content = if tokens.len() > *long_ctxt_tokens {
                 format!("{}\n\n{}\n\nReasoning for which user information to extract:\n<reasoning>\n",
                     sample,
                     memory_prompt.prompt.clone()

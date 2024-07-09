@@ -42,11 +42,13 @@ struct MemoryWithGroup {
 fn build_memory_with_group_query() -> sqlx::QueryBuilder<'static, sqlx::Postgres> {
     sqlx::QueryBuilder::new(
         "SELECT m.*, mg.id AS group_id, mg.name AS group_name, \
-         mg.description AS group_description, mg.created_at AS group_created_at, \
-         mg.updated_at AS group_updated_at \
+         mg.created_at AS group_created_at, \
+         mg.updated_at AS group_updated_at, \
+         mg.deleted_at AS group_deleted_at \
          FROM memories m \
          LEFT JOIN memory_groups mg ON m.group_id = mg.id \
-         WHERE m.user_id = ")
+         WHERE m.user_id = "
+    )
 }
 
 // Changed: Updated Default implementation to include group_id and remove grouping and emoji

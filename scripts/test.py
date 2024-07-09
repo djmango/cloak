@@ -175,7 +175,7 @@ if __name__ == '__main__':
     memory_prompt_id = 'bb324e6e-de12-4078-bd1c-ebc9d934b535'
     for user_id in user_ids:
         delete_all_memories(base_url, user_id)
-        test_memory_increment(base_url, user_id, memory_prompt_id)
+        test_memory_increment(base_url, user_id, memory_prompt_id, days_back=3)
         print(f'getting mem for {user_id}')
         final_mem = get_all(base_url, user_id, format=True)
         print(final_mem)
