@@ -23,7 +23,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::middleware::auth::AuthenticatedUser;
-use crate::models::{Memory, MemoryPrompt, Message, MemoryGroup};
+use crate::models::{Memory, MemoryGroup, MemoryPrompt, Message};
 use crate::prompts::Prompts;
 use crate::types::{
     AddMemoryPromptRequest, CreateMemoryRequest, DeleteAllMemoriesRequest, GenerateMemoriesRequest,
@@ -46,8 +46,8 @@ async fn call_fn(
     match name {
         "create_memory" => {
             let memory = function_args["memory"].as_str().unwrap();
-            let emoji  = function_args.get("emoji").and_then(|g| g.as_str());
-            let grouping  = function_args.get("grouping").and_then(|g| g.as_str());
+            let emoji = function_args.get("emoji").and_then(|g| g.as_str());
+            let grouping = function_args.get("grouping").and_then(|g| g.as_str());
 
             // create grouping
             let memory_group = MemoryGroup::add_memory_group(
@@ -55,8 +55,9 @@ async fn call_fn(
                 user_id,
                 grouping.unwrap_or_default(),
                 emoji.unwrap_or_default(),
-                memory_groups_cache
-            ).await?;
+                memory_groups_cache,
+            )
+            .await?;
 
             let new_memory = Memory::add_memory(
                 pool,
@@ -74,12 +75,10 @@ async fn call_fn(
             let new_memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
             let group_id = if let Some(grouping) = grouping {
-                if let Some(memory_group) = MemoryGroup::get_memory_group(
-                    pool,
-                    user_id,
-                    grouping,
-                    memory_groups_cache
-                ).await? {
+                if let Some(memory_group) =
+                    MemoryGroup::get_memory_group(pool, user_id, grouping, memory_groups_cache)
+                        .await?
+                {
                     Some(memory_group.id)
                 } else {
                     None
@@ -138,13 +137,14 @@ pub async fn get_all_user_memories(
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
 ) -> Result<String> {
     // Fetch all memories with a given memory prompt for the user
-    let user_memories = match Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await {
-        Ok(memories) => memories,
-        Err(e) => {
-            error!("Failed to fetch existing memories: {:?}", e);
-            Vec::new() // Return an empty vector if there's an error
-        }
-    };
+    let user_memories =
+        match Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await {
+            Ok(memories) => memories,
+            Err(e) => {
+                error!("Failed to fetch existing memories: {:?}", e);
+                Vec::new() // Return an empty vector if there's an error
+            }
+        };
     let formatted_memories = Memory::format_memories(user_memories);
     Ok(formatted_memories)
 }
@@ -156,20 +156,21 @@ async fn create_memory(
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateMemoryRequest>,
 ) -> Result<web::Json<Memory>, actix_web::Error> {
-
     let memory_group = match (req_body.group.as_ref(), req_body.emoji.as_ref()) {
-        (Some(group), Some(emoji)) => {
-            Some(MemoryGroup::add_memory_group(
+        (Some(group), Some(emoji)) => Some(
+            MemoryGroup::add_memory_group(
                 &app_state.pool,
                 &authenticated_user.user_id,
                 group,
                 emoji,
-                &app_state.memory_groups_cache
-            ).await.map_err(|e| {
+                &app_state.memory_groups_cache,
+            )
+            .await
+            .map_err(|e| {
                 error!("Failed to create memory group: {:?}", e);
                 actix_web::error::ErrorInternalServerError(e)
-            })?)
-        },
+            })?,
+        ),
         _ => None,
     };
 
@@ -201,7 +202,7 @@ async fn get_all_memories_groups(
         &authenticated_user.user_id,
         info.memory_prompt_id,
         &app_state.memory_cache,
-        &app_state.memory_groups_cache
+        &app_state.memory_groups_cache,
     )
     .await
     .map_err(|e| {
@@ -418,21 +419,28 @@ pub async fn generate_memories_from_chat_history(
     let mut i = 0;
     let mut sample_toks = 0;
 
-    info!("Begin processing samples of max {} tokens", *max_sample_toks);
+    info!(
+        "Begin processing samples of max {} tokens",
+        *max_sample_toks
+    );
 
     while !msgs_queue.is_empty() {
         // push to samples and reset memory_content
 
         if i >= samples_per_query {
             i = 0;
-            info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+            info!(
+                "Sample {}: Total token count: {}",
+                generated_samples.len() + 1,
+                sample_toks
+            );
             memory_content += "</end chat>\n";
             sample_toks = 0;
             generated_samples.push(memory_content.clone());
             memory_content = String::new();
         }
         if let Some(msg) = msgs_queue.pop_front() {
-            i+=1;
+            i += 1;
             let message_content = format!(
                 "<message {}: {}>\n{}\n</message {}: {}>\n",
                 i, msg.role, msg.text, i, msg.role
@@ -445,13 +453,13 @@ pub async fn generate_memories_from_chat_history(
             if sample_toks > *max_sample_toks {
                 let remaining_tokens = *max_sample_toks - sample_toks;
                 let truncated_msg = if let Ok(tokenizer) = &bpe {
-                    let truncated_tokens = tokenizer.encode_with_special_tokens(
-                        &msg.text)[..remaining_tokens].to_vec();
-                    tokenizer.decode(truncated_tokens)
+                    let truncated_tokens = tokenizer.encode_with_special_tokens(&msg.text)
+                        [..remaining_tokens]
+                        .to_vec();
+                    tokenizer
+                        .decode(truncated_tokens)
                         .context("Failed to decode truncated message")
-                        .unwrap_or_else(|_| {
-                            msg.text.chars().take(remaining_tokens.clone() * 4).collect()
-                    })
+                        .unwrap_or_else(|_| msg.text.chars().take(remaining_tokens * 4).collect())
                 } else {
                     // Fallback to character-based truncation
                     msg.text.chars().take(remaining_tokens * 4).collect()
@@ -462,22 +470,26 @@ pub async fn generate_memories_from_chat_history(
                     i, msg.role, truncated_msg, i, msg.role
                 );
                 i = 0;
-                info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+                info!(
+                    "Sample {}: Total token count: {}",
+                    generated_samples.len() + 1,
+                    sample_toks
+                );
                 sample_toks = 0;
                 memory_content.push_str(&truncated_content);
                 generated_samples.push(memory_content.clone());
                 memory_content = String::new();
-                
+
                 // Push the remaining part of the message back to the queue
                 let remaining_msg = if let Ok(tokenizer) = &bpe {
-                    let remaining_tokens = tokenizer.encode_with_special_tokens(
-                        &msg.text)[remaining_tokens..].to_vec();
+                    let remaining_tokens = tokenizer.encode_with_special_tokens(&msg.text)
+                        [remaining_tokens..]
+                        .to_vec();
                     let remaining_len = remaining_tokens.len();
-                    tokenizer.decode(remaining_tokens)
+                    tokenizer
+                        .decode(remaining_tokens)
                         .context("Failed to decode remaining message")
-                        .unwrap_or_else(|_| {
-                            msg.text.chars().skip(remaining_len * 4).collect()
-                        })
+                        .unwrap_or_else(|_| msg.text.chars().skip(remaining_len * 4).collect())
                 } else {
                     // Fallback to character-based splitting
                     msg.text.chars().skip(remaining_tokens * 4).collect()
@@ -493,7 +505,11 @@ pub async fn generate_memories_from_chat_history(
     }
     // Don't forget to push the last memory_content if it's not empty
     if !memory_content.is_empty() {
-        info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+        info!(
+            "Sample {}: Total token count: {}",
+            generated_samples.len() + 1,
+            sample_toks
+        );
         generated_samples.push(memory_content);
     }
 
@@ -597,21 +613,18 @@ async fn process_memory_context(
     )
     .await?;
 
-    let formatted_memories =
-        process_formatted_memories(&formatted_content).await?;
+    let formatted_memories = process_formatted_memories(&formatted_content).await?;
 
-    let existing_memories = match Memory::get_all_memories(
-        &app_state.pool,
-        user_id,
-        None,
-        &app_state.memory_cache,
-    ).await {
-        Ok(memories) => memories,
-        Err(e) => {
-            error!("Failed to fetch existing memories: {:?}", e);
-            Vec::new() // Return an empty vector if there's an error
-        }
-    };
+    let existing_memories =
+        match Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
+            .await
+        {
+            Ok(memories) => memories,
+            Err(e) => {
+                error!("Failed to fetch existing memories: {:?}", e);
+                Vec::new() // Return an empty vector if there's an error
+            }
+        };
     // if no existing memories, skip
     increment_memory(
         app_state,
@@ -641,10 +654,12 @@ async fn process_formatted_memories(
                     trimmed.strip_prefix('-').map(|s| s.trim().to_string())
                 })
                 .collect();
-            
-            processed_memories.extend(memories.into_iter().map(|memory| {
-                (Uuid::new_v4(), grouping.clone(), memory)
-            }));
+
+            processed_memories.extend(
+                memories
+                    .into_iter()
+                    .map(|memory| (Uuid::new_v4(), grouping.clone(), memory)),
+            );
         }
     }
     Ok(processed_memories)
@@ -655,7 +670,7 @@ async fn increment_memory(
     user_id: &str,
     memory_prompt_id: &Uuid,
     sem: Option<Arc<Semaphore>>,
-    new_memories: &Vec<(Uuid, String, String)>,
+    new_memories: &[(Uuid, String, String)],
     existing_memories: &Vec<Memory>,
 ) -> Result<Vec<Memory>> {
     let new_memory_count = new_memories.len();
@@ -702,12 +717,7 @@ async fn increment_memory(
         &prompt,
     )
     .await?;
-    let filtered_memories = parse_ai_response(
-        app_state,
-        existing_memories,
-        &response,
-    )
-    .await?;
+    let filtered_memories = parse_ai_response(app_state, existing_memories, &response).await?;
 
     let memories_to_update: Vec<(Uuid, String, String)> = filtered_memories
         .iter()
@@ -758,7 +768,7 @@ async fn process_memories(
     user_id: &str,
     memory_prompt_id: &Uuid,
     sem: Option<Arc<Semaphore>>,
-    memories: &Vec<(Uuid, String, String)>,
+    memories: &[(Uuid, String, String)],
 ) -> Result<Vec<Memory>> {
     let futures = memories.iter().map(|memory| {
         let app_state = app_state.clone();
@@ -766,11 +776,7 @@ async fn process_memories(
         async move {
             let (memory_id, grouping, content) = memory;
 
-            let emoji = get_emoji(
-                &app_state,
-                user_id,
-                grouping,
-            ).await?;
+            let emoji = get_emoji(&app_state, user_id, grouping).await?;
 
             let args = json!({
                 "memory_id": memory_id,
@@ -792,7 +798,7 @@ async fn process_memories(
                 user_id,
                 memory_prompt_id,
                 &app_state.memory_cache,
-                &app_state.memory_groups_cache
+                &app_state.memory_groups_cache,
             )
             .await?
             .into_iter()
@@ -810,11 +816,13 @@ async fn get_emoji(
 ) -> Result<String> {
     // First, check for existing emoji in the memory groups cache
     if let Some(existing_group) = MemoryGroup::get_memory_group(
-        &app_state.pool, 
+        &app_state.pool,
         user_id,
-        grouping, 
-        &app_state.memory_groups_cache
-    ).await? {
+        grouping,
+        &app_state.memory_groups_cache,
+    )
+    .await?
+    {
         info!(
             "Using existing emoji '{}' for grouping '{}'",
             existing_group.emoji, grouping
@@ -911,7 +919,7 @@ async fn parse_ai_response(
                     let memory_id = Uuid::new_v4();
                     let grouping = grouping_or_memory.unwrap_or("").to_string();
                     Some((memory_id, grouping, content.to_string()))
-                },
+                }
                 "UPDATE" => {
                     let memory_id = match grouping_or_memory.and_then(|id| Uuid::parse_str(id).ok())
                     {
@@ -971,7 +979,10 @@ async fn parse_ai_response(
                         }
                     };
 
-                    let grouping = existing_memory.group_id.map(|id| id.to_string()).unwrap_or_default();
+                    let grouping = existing_memory
+                        .group_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default();
                     info!("Updated memory: {:?}", updated_memory);
                     Some((memory_id, grouping, updated_memory))
                 }

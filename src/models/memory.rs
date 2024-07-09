@@ -372,7 +372,7 @@ impl Memory {
         let mut user_groups = HashMap::new();
         let memories_with_groups: Vec<(MemoryGroup, Memory)> = result
             .into_iter()
-            .map(|(r)| (r.group, r.memory))
+            .map(|r| (r.group, r.memory))
             .collect();
 
         for (memory_group, memory) in &memories_with_groups {
