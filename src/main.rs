@@ -82,23 +82,37 @@ async fn main(
             .build(),
     });
 
+    /*
     let scheduler = JobScheduler::new().await.unwrap();
     let app_state_clone: Arc<AppState> = app_state.clone();
     let yesterday: chrono::prelude::DateTime<Utc> = Utc::now() - chrono::Duration::days(1);
+    */
 
-    let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
-        let app_state: Arc<AppState> = app_state_clone.clone();
-        Box::pin(async move {
-            let timeout = Duration::from_secs(3 * 60 * 60); // 3 hours
-            match tokio::time::timeout(timeout, generate_all_users_memories(app_state, yesterday)).await {
-                Ok(_) => info!("Job completed successfully within the time limit"),
-                Err(_) => error!("Job timed out after 3 hours"),
-            }
-        })
-    })
-    .unwrap();
-    scheduler.add(job).await.unwrap();
-    scheduler.start().await.unwrap();
+    // Production code (commented out)
+    // let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
+    //     let app_state: Arc<AppState> = app_state_clone.clone();
+    //     Box::pin(async move {
+    //         let timeout = Duration::from_secs(3 * 60 * 60); // 3 hours
+    //         match tokio::time::timeout(timeout, generate_all_users_memories(app_state, yesterday)).await {
+    //             Ok(_) => info!("Job completed successfully within the time limit"),
+    //             Err(_) => error!("Job timed out after 3 hours"),
+    //         }
+    //     })
+    // })
+    // .unwrap();
+    // scheduler.add(job).await.unwrap();
+    // scheduler.start().await.unwrap();
+
+    // Test version (executes immediately)
+    let app_state_clone: Arc<AppState> = app_state.clone();
+    let timeout = Duration::from_secs(3 * 60 * 60); // 3 hours
+    let begin_time = Utc::now() - chrono::Duration::days(365 * 10); // 10 years ago
+    tokio::spawn(async move {
+        match tokio::time::timeout(timeout, generate_all_users_memories(app_state_clone, begin_time)).await {
+            Ok(_) => info!("Test job completed successfully within the time limit"),
+            Err(_) => error!("Test job timed out after 3 hours"),
+        }
+    });
 
     let openapi = ApiDoc::openapi();
 
@@ -169,14 +183,13 @@ async fn main(
     Ok(config.into())
 }
 
-
 fn select_random_fraction(users: &[User], fraction: f64) -> Vec<User> {
     let mut rng = rand::thread_rng();
     let sample_size = (users.len() as f64 * fraction).ceil() as usize;
     users.choose_multiple(&mut rng, sample_size).cloned().collect()
 }
 
-async fn generate_all_users_memories(app_state: Arc<AppState>, yesterday: chrono::DateTime<Utc>) {
+async fn generate_all_users_memories(app_state: Arc<AppState>, begin_time: chrono::DateTime<Utc>) {
     let all_users = match User::get_all(&app_state.pool).await {
         Ok(users) => users,
         Err(e) => {
@@ -186,40 +199,54 @@ async fn generate_all_users_memories(app_state: Arc<AppState>, yesterday: chrono
     };
     info!("Total users: {}", all_users.len());
 
-    let selected_users = select_random_fraction(&all_users, 0.1);
-    info!("Selected users: {}", selected_users.len());
+    let selected_users = select_random_fraction(&all_users, 0.05);
+    let selected_users_count = selected_users.len();
+    info!("Selected users: {}", selected_users_count);
 
-    let batch_size = 300;
+    let batch_size = 100;
     let semaphore = Arc::new(Semaphore::new(batch_size));
 
-    stream::iter(selected_users)
+    let successful_futures = stream::iter(selected_users)
         .chunks(batch_size)
-        .for_each(|chunk| {
+        .flat_map(|chunk| {
             let app_state = app_state.clone();
             let semaphore = semaphore.clone();
-            async move {
-                let futures = chunk.into_iter().map(|user| {
-                    let app_state = app_state.clone();
-                    let user_id = user.id;
-                    let semaphore = semaphore.clone();
-                    async move {
-                        let response = routes::memory::generate_memories_from_chat_history(
-                            &web::Data::new(app_state),
-                            Some(semaphore), // We're using our own semaphore now
-                            &user_id,
-                            None,
-                            None,
-                            Some((yesterday, Utc::now())),
-                        )
-                        .await;
-                        match response {
-                            Ok(memories) => info!("Memories generated successfully for user: {}. Count: {}", user_id, memories.len()),
-                            Err(e) => error!("Error generating memories for user {}: {:?}", user_id, e),
-                        }
+            stream::iter(chunk).map(move |user| {
+                let app_state = app_state.clone();
+                let user_id = user.id;
+                let semaphore = semaphore.clone();
+                async move {
+                    let response = routes::memory::generate_memories_from_chat_history(
+                        &web::Data::new(app_state),
+                        Some(semaphore),
+                        &user_id,
+                        None,
+                        None,
+                        Some((begin_time, Utc::now())),
+                    )
+                    .await;
+                    match response {
+                        Ok(memories) => {
+                            info!("Memories generated successfully for user: {}. Count: {}", user_id, memories.len());
+                            Some(user_id)
+                        },
+                        Err(e) => {
+                            error!("Error generating memories for user {}: {:?}", user_id, e);
+                            None
+                        },
                     }
-                });
-                join_all(futures).await;
-            }
+                }
+            })
         })
+        .buffer_unordered(batch_size)
+        .filter_map(|result| async move { result })
+        .collect::<Vec<_>>()
         .await;
+
+    let processed_users_count = successful_futures.len();
+
+    info!("Memory generation complete. Breakdown:");
+    info!("Selected users: {}", selected_users_count);
+    info!("Processed users: {}", processed_users_count);
+    info!("Not processed users: {}", selected_users_count - processed_users_count);
 }

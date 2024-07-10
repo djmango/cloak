@@ -49,6 +49,7 @@ async fn create_system_prompt(
     start_time: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, actix_web::Error> {
     // Fetch user memories
+    let test_user_id = "user_01HZ3ZJ6QHEXSWHCDNGRTY0NFM";
     let memories = Memory::get_all_memories(&app_state.pool, user_id, &app_state.memory_cache)
         .await
         .map_err(|e| {

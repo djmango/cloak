@@ -291,7 +291,7 @@ pub async fn generate_memories_from_chat_history(
     let mut i = 0;
     let mut sample_tokens = 0;
     let mut working_tokens: Option<(Uuid, Vec<usize>)> = None;
-
+    
     info!(
         "Begin processing samples of max {} tokens",
         *max_sample_toks
