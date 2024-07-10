@@ -96,7 +96,7 @@ def count_memory_tokens(memories):
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
     return total_tokens
 
-def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=14):
+def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=1):
     now = datetime.utcnow()
     # Ensure logs directory exists
     log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')
@@ -105,7 +105,7 @@ def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=14):
     # Test case 1: Generate from beginning of time to 'days_back' days ago
     start_date = datetime.min  # Beginning of time
     end_date = now - timedelta(days=days_back)
-    range_payload = [0, int(end_date.timestamp())]
+    range_payload = [int((now - timedelta(days=10)).timestamp()), int(end_date.timestamp())]
     response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
     print(f"Test case 1: {start_date} to {end_date} - {'Success' if response else 'Fail'}")
     log_response(f"beginning_to_{days_back}_days_ago", response, log_dir)
