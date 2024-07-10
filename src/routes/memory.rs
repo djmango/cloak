@@ -371,53 +371,63 @@ pub async fn generate_memories_from_chat_history(
     let mut generated_samples = Vec::new();
     let mut memory_content = String::new();
     let mut i = 0;
-    let mut sample_toks = 0;
+    let mut sample_tokens = 0;
+    let mut working_tokens: Option<(Uuid, Vec<usize>)> = None;
 
     info!("Begin processing samples of max {} tokens", *max_sample_toks);
 
     while !msgs_queue.is_empty() {
-
-        // push to samples and reset memory_content
         if i >= samples_per_query {
             i = 0;
-            info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+            info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_tokens);
             memory_content += "</end chat>\n";
-            sample_toks = 0;
+            sample_tokens = 0;
             generated_samples.push(memory_content.clone());
             memory_content = String::new();
         }
 
         if let Some(msg) = msgs_queue.pop_front() {
-            i+=1;
-
+            i += 1;
             let message_content = format!(
                 "<message {}: {}>\n{}\n</message {}: {}>\n",
                 i, msg.role, msg.text, i, msg.role
             );
 
-            // count
-            let num_tokens = match &bpe {
-                Ok(tokenizer) => tokenizer.encode_with_special_tokens(&msg.text).len(),
-                Err(_) => estimate_token_count(&msg.text),
+            let num_tokens = if let Some((cached_msg_id, cached_tokens)) = &working_tokens {
+                if cached_msg_id == &msg.id {
+                    cached_tokens.len()
+                } else {
+                    match &bpe {
+                        Ok(tokenizer) => {
+                            let tokens = tokenizer.encode_with_special_tokens(&msg.text);
+                            working_tokens = Some((msg.id.clone(), tokens.clone()));
+                            tokens.len()
+                        }
+                        Err(_) => estimate_token_count(&msg.text),
+                    }
+                }
+            } else {
+                match &bpe {
+                    Ok(tokenizer) => {
+                        let tokens = tokenizer.encode_with_special_tokens(&msg.text);
+                        working_tokens = Some((msg.id.clone(), tokens.clone()));
+                        tokens.len()
+                    }
+                    Err(_) => estimate_token_count(&msg.text),
+                }
             };
 
-            sample_toks += num_tokens;
-
-            // if sample_toks is over limit after adding current msg, 
-            // finish processing current sample after adding truncated current msg
-            // then put reminder of truncated msg back in queue as beginning of next sample 
-            if sample_toks > *max_sample_toks {
-                let remaining_tokens = *max_sample_toks - (sample_toks - num_tokens);
+            sample_tokens += num_tokens;
+            if sample_tokens > *max_sample_toks {
+                let remaining_tokens = *max_sample_toks - (sample_tokens - num_tokens);
                 let truncated_msg = if let Ok(tokenizer) = &bpe {
-                    let truncated_tokens = tokenizer.encode_with_special_tokens(
-                        &msg.text)[..remaining_tokens].to_vec();
+                    let truncated_tokens = working_tokens.as_ref()
+                        .map(|(_, tokens)| tokens[..remaining_tokens].to_vec())
+                        .unwrap_or_else(|| tokenizer.encode_with_special_tokens(&msg.text)[..remaining_tokens].to_vec());
                     tokenizer.decode(truncated_tokens)
                         .context("Failed to decode truncated message")
-                        .unwrap_or_else(|_| {
-                            msg.text.chars().take(remaining_tokens.clone() * 4).collect()
-                    })
+                        .unwrap_or_else(|_| msg.text.chars().take(remaining_tokens * 4).collect())
                 } else {
-                    // Fallback to character-based truncation
                     msg.text.chars().take(remaining_tokens * 4).collect()
                 };
 
@@ -427,36 +437,35 @@ pub async fn generate_memories_from_chat_history(
                 );
 
                 i = 0;
-                info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
-                sample_toks = 0;
+                info!("Sample {}: Total token count: {}", generated_samples.len() + 1, *max_sample_toks);
+                sample_tokens = 0;
                 memory_content.push_str(&truncated_content);
                 generated_samples.push(memory_content.clone());
                 memory_content = String::new();
                 
-                // Push the remaining part of the message back to the queue
                 let remaining_msg = if let Ok(tokenizer) = &bpe {
-                    let remaining_tokens = tokenizer.encode_with_special_tokens(
-                        &msg.text)[remaining_tokens..].to_vec();
+                    let remaining_tokens = working_tokens.as_ref()
+                        .map(|(_, tokens)| tokens[remaining_tokens..].to_vec())
+                        .unwrap_or_else(|| tokenizer.encode_with_special_tokens(&msg.text)[remaining_tokens..].to_vec());
                     let remaining_len = remaining_tokens.len();
+                    working_tokens = Some((msg.id.clone(), remaining_tokens.clone()));
                     tokenizer.decode(remaining_tokens)
                         .context("Failed to decode remaining message")
-                        .unwrap_or_else(|_| {
-                            msg.text.chars().skip(remaining_len * 4).collect()
-                        })
+                        .unwrap_or_else(|_| msg.text.chars().skip(remaining_len * 4).collect())
                 } else {
-                    // Fallback to character-based splitting
                     msg.text.chars().skip(remaining_tokens * 4).collect()
                 };
-
-                msgs_queue.push_front(Message {text: remaining_msg,..msg});
+                msgs_queue.push_front(Message {
+                    text: remaining_msg,
+                    ..msg
+                });
             } else {
                 memory_content.push_str(&message_content);
             }
         }
     }
-    // Don't forget to push the last memory_content if it's not empty
     if !memory_content.is_empty() {
-        info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+        info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_tokens);
         generated_samples.push(memory_content);
     }
 
