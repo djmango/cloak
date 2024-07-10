@@ -407,7 +407,7 @@ pub async fn generate_memories_from_chat_history(
             // finish processing current sample after adding truncated current msg
             // then put reminder of truncated msg back in queue as beginning of next sample 
             if sample_toks > *max_sample_toks {
-                let remaining_tokens = *max_sample_toks - sample_toks;
+                let remaining_tokens = *max_sample_toks - (sample_toks - num_tokens);
                 let truncated_msg = if let Ok(tokenizer) = &bpe {
                     let truncated_tokens = tokenizer.encode_with_special_tokens(
                         &msg.text)[..remaining_tokens].to_vec();
