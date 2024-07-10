@@ -62,11 +62,8 @@ async fn create_system_prompt(
     let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
 
     // Create the system prompt with datetime and memories
-    Ok(format!(
-        Prompts::SYSTEM_PROMPT,
-        start_time.format("%Y-%m-%d %H:%M:%S"),
-        formatted_memories
-    ))
+    Ok(Prompts::SYSTEM_PROMPT.replace("{0}", &start_time.format("%Y-%m-%d %H:%M:%S").to_string())
+        .replace("{1}", &formatted_memories))
 }
 
 /// The primary oai mocked streaming chat completion endpoint, with all i.inc features

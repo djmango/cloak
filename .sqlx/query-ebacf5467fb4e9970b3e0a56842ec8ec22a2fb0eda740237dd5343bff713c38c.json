@@ -35,11 +35,6 @@
       },
       {
         "ordinal": 6,
-        "name": "memory_prompt_id",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 7,
         "name": "grouping",
         "type_info": "Varchar"
       }
@@ -55,7 +50,6 @@
       false,
       false,
       false,
-      true,
       true,
       true
     ]
