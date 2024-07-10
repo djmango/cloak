@@ -6,9 +6,9 @@ use tracing::error;
 use utoipa::OpenApi;
 
 use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::models::file::{File, Filetype};
-use crate::models::message::{Message, Role};
+use crate::models::file::Filetype;
+use crate::models::message::Role;
+use crate::models::{Chat, File, Memory, Message};
 use crate::types::AllResponse;
 use crate::AppState;
 
@@ -58,8 +58,18 @@ pub async fn sync_all(
     )
     .fetch_all(&app_state.pool);
 
-    let (chats_result, messages_result, files_result) =
-        join!(chats_future, messages_future, files_future);
+    let memory_future = query_as!(
+        Memory,
+        r#"
+        SELECT * FROM memories
+        WHERE user_id = $1 AND deleted_at IS NULL
+        "#,
+        user_id
+    )
+    .fetch_all(&app_state.pool);
+
+    let (chats_result, messages_result, files_result, memories_result) =
+        join!(chats_future, messages_future, files_future, memory_future);
 
     let chats = chats_result.map_err(|e| {
         error!("Failed to fetch chats: {:?}", e);
@@ -76,9 +86,15 @@ pub async fn sync_all(
         actix_web::error::ErrorInternalServerError(e)
     })?;
 
+    let memories = memories_result.map_err(|e| {
+        error!("Failed to fetch memories: {:?}", e);
+        actix_web::error::ErrorInternalServerError(e)
+    })?;
+
     Ok(web::Json(AllResponse {
         chats,
         messages,
         files,
+        memories,
     }))
 }

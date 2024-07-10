@@ -1,15 +1,25 @@
+use crate::models::memory::Memory;
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::web;
 use async_openai::{config::OpenAIConfig, Client};
+use chrono::Utc;
 use config::AppConfig;
+use futures::future::join_all;
+use models::User;
+use moka::future::Cache;
 use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
 use sqlx::postgres::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tokio_cron_scheduler::{Job, JobScheduler};
+use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
+use uuid::Uuid;
 
 mod config;
 mod middleware;
@@ -24,6 +34,7 @@ struct AppState {
     pool: PgPool,
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
+    memory_cache: Cache<String, HashMap<Uuid, Memory>>,
 }
 
 #[derive(OpenApi)]
@@ -59,8 +70,63 @@ async fn main(
                 .with_api_base("https://api.keywordsai.co/api"),
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
+        memory_cache: Cache::builder()
+            .max_capacity(1024 * 1024 * 1024) // 1GB limit (in bytes)
+            .weigher(|_key, value: &HashMap<Uuid, Memory>| -> u32 {
+                let estimated_memory_size = 1000; // Assume each Memory object is roughly 1000 bytes
+                (value.len() * estimated_memory_size) as u32
+            })
+            .build(),
     });
 
+    let scheduler = JobScheduler::new().await.unwrap();
+    let app_state_clone: Arc<AppState> = app_state.clone();
+    let yesterday: chrono::prelude::DateTime<Utc> = Utc::now() - chrono::Duration::days(1);
+    let semaphore = Arc::new(Semaphore::new(1000));
+    // ... existing code ...
+    let job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
+        let app_state: Arc<AppState> = app_state_clone.clone();
+        let semaphore = semaphore.clone();
+        Box::pin(async move {
+            let all_users = User::get_all(&app_state.pool).await.unwrap();
+            info!("All users: {:?}", all_users.len());
+
+            let futures: Vec<_> = all_users
+                .iter()
+                .map(|user| {
+                    let app_state = app_state.clone();
+                    let user_id = user.id.clone();
+                    let semaphore = semaphore.clone();
+
+                    async move {
+                        let response = routes::memory::generate_memories_from_chat_history(
+                            &web::Data::new(app_state),
+                            Some(semaphore),
+                            &user_id,
+                            &Uuid::parse_str("b66ebb74-09c2-4c67-bf99-52c05e7dbe44").unwrap(),
+                            None,
+                            None,
+                            Some((yesterday, Utc::now())),
+                        )
+                        .await;
+
+                        match response {
+                            Ok(_) => info!("Memories generated successfully for user: {}", user_id),
+                            Err(e) => {
+                                error!("Error generating memories for user {}: {:?}", user_id, e)
+                            }
+                        }
+                    }
+                })
+                .collect();
+
+            join_all(futures).await;
+        })
+    })
+    .unwrap();
+    // ... existing code ...
+    scheduler.add(job).await.unwrap();
+    scheduler.start().await.unwrap();
     let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {
@@ -106,13 +172,14 @@ async fn main(
                         .service(routes::pay::payment_success),
                 )
                 .service(
-                    web::scope("/memory")
-                        .service(routes::memory::generate_memories_from_chat_history)
+                    web::scope("/memories")
+                        .service(routes::memory::generate_memories_from_chat_history_endpoint)
                         .service(routes::memory::add_memory_prompt)
                         .service(routes::memory::create_memory)
                         .service(routes::memory::get_all_memories)
                         .service(routes::memory::update_memory)
                         .service(routes::memory::delete_memory)
+                        .service(routes::memory::delete_all_memories),
                 )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))

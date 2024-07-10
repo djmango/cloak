@@ -4,7 +4,7 @@ use async_openai::error::OpenAIError;
 use async_openai::types::{
     ChatCompletionFunctionCall, ChatCompletionRequestMessage,
     ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartText,
-    ChatCompletionRequestUserMessageContent,
+    ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessageContent,
     ChatCompletionResponseFormat, ChatCompletionStreamOptions, ChatCompletionTool,
     ChatCompletionToolChoiceOption, CreateChatCompletionRequest, InvisibilityMetadata,
 };
@@ -16,13 +16,14 @@ use futures::TryStreamExt;
 use serde_json::to_string;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use utoipa::OpenApi;
 
 // use crate::routes::memory::get_all_user_memories;
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::chat::Chat;
+use crate::models::memory::Memory;
 use crate::models::message::Message;
 use crate::AppState;
 
@@ -41,6 +42,50 @@ use crate::AppState;
     ))
 )]
 pub struct ApiDoc;
+
+// Helper function to create the system prompt
+async fn create_system_prompt(
+    app_state: &web::Data<Arc<AppState>>,
+    user_id: &str,
+    start_time: chrono::DateTime<chrono::Utc>,
+) -> Result<String, actix_web::Error> {
+    // Fetch user memories
+    let memories =
+        Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
+            .await
+            .map_err(|e| {
+                error!("Failed to get memories: {:?}", e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+
+    info!("got {} memories", memories.len());
+    // Format memories
+    let format_with_id = false;
+    let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
+
+    // Create the system prompt with datetime and memories
+    Ok(format!(
+        "You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
+
+    Invisibility should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. 
+
+    Invisibility is happy to help with writing, analysis, question answering, math, coding, and all sorts of other tasks. It uses markdown for coding, and uses Latex with single $ delimiters for inline equations, and double $$ delimiters for displayed or multi-line equations (use line breaks for multi line).
+
+    Invisibility does not mention this information about itself unless directly asked by the human. 
+
+    Invisibility has access to these capabilities: 
+    - Access multiple advanced LLMs like GPT-4, Claude-3.5 Sonnet, and Gemini Pro 1.5
+    - Use \"Sidekick\" feature to analyze screen content and context
+
+    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below. 
+
+    {}
+
+    If the memory is pertinent to the user's query, Invisibility will use the information when answering it.",
+        start_time.format("%Y-%m-%d %H:%M:%S"),
+        formatted_memories
+    ))
+}
 
 /// The primary oai mocked streaming chat completion endpoint, with all i.inc features
 #[utoipa::path(
@@ -67,38 +112,30 @@ async fn chat(
     );
 
     let mut request_args = req_body.into_inner();
-    
-    // NOTE: uncomment when enabling memory injection
-    // let memory_prompts = MemoryPrompt::get_all(&app_state.pool)
-    //     .await
-    //     .map_err(|e| {
-    //         error!("Error getting memory prompts: {:?}", e);
-    //         actix_web::error::ErrorInternalServerError(e.to_string())
-    //     })?;
 
-    // // Select memory prompt at random
-    // // TODO: Come up with better A/B testing strategy
-    // let memory_prompt = memory_prompts[rand::thread_rng().gen_range(0..memory_prompts.len())].clone();
+    // Attempt to create the system prompt
+    match create_system_prompt(&app_state, &authenticated_user.user_id, start_time).await {
+        Ok(system_prompt) => {
+            // Log the system prompt
+            info!("System prompt created: {}", system_prompt);
 
-    // NOTE disabling memory injection for now
-    // // Get all user memories
-    // let all_memories = get_all_user_memories(
-    //     Arc::new(app_state.pool.clone()),
-    //     &authenticated_user.user_id,
-    // )
-    // .await
-    // .map_err(|e| {
-    //     error!("Error fetching user memories: {:?}", e);
-    //     actix_web::error::ErrorInternalServerError("Failed to fetch user memories")
-    // })?;
-
-    // // Prepend all memories to the messages as a system message
-    // request_args.messages.insert(0, ChatCompletionRequestMessage::System(
-    //     ChatCompletionRequestSystemMessage {
-    //         content: format!("You are an AI assistant with access to the following user memories:\n{}\n\nUse these memories to provide context and personalized responses. When appropriate, refer to or update these memories.", all_memories),
-    //         name: Some("Memory".to_string()),
-    //     }
-    // ));
+            // Prepend the system prompt to the messages
+            request_args.messages.insert(
+                0,
+                ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
+                    content: system_prompt,
+                    name: Some("system".to_string()),
+                }),
+            );
+        }
+        Err(e) => {
+            // Log the error but continue without the system prompt
+            error!(
+                "Error creating system prompt: {:?}. Continuing without system prompt.",
+                e
+            );
+        }
+    }
 
     // For now, we only support streaming completions
     request_args.stream = Some(true);
@@ -326,25 +363,20 @@ async fn chat(
                             }
                         };
 
-                        // If the metadata includes a regenerate_from_message_id, mark the messages after that
-                        // in the chat as regenerated
-                        match invisibility_metadata.as_ref() {
-                            Some(metadata) => {
-                                if let Some(regenerate_from_message_id) =
-                                    metadata.regenerate_from_message_id
+                        // If the metadata includes a regenerate_from_message_id, mark the messages after that in the chat as regenerated
+                        if let Some(metadata) = invisibility_metadata.as_ref() {
+                            if let Some(regenerate_from_message_id) =
+                                metadata.regenerate_from_message_id
+                            {
+                                if let Err(e) = Message::mark_regenerated_from_message_id(
+                                    &app_state.pool,
+                                    regenerate_from_message_id,
+                                )
+                                .await
                                 {
-                                    if let Err(e) = Message::mark_regenerated_from_message_id(
-                                        &app_state.pool,
-                                        regenerate_from_message_id,
-                                    )
-                                    .await
-                                    {
-                                        error!("Error marking chat as regenerated: {:?}", e);
-                                        // You might want to handle this error case more explicitly
-                                    }
+                                    error!("Error marking chat as regenerated: {:?}", e);
                                 }
                             }
-                            None => {} // Do nothing if invisibility_metadata is None
                         }
 
                         // Insert into db a message, the last OAI message (prompt). This should always be a user message
@@ -367,18 +399,6 @@ async fn chat(
                                     error!("Error creating message from OAI message: {:?}", e);
                                 }
                             };
-
-                            // Process memory
-                            // NOTE: uncomment when enabling memory injection
-                            // info!("Processing memory");
-                            // _ = process_memory(
-                            //     &app_state.pool,
-                            //     &chat.user_id,
-                            //     vec![last_oai_message],
-                            //     client,
-                            //     memory_prompt.id,
-                            // )
-                            // .await;
                         } else {
                             error!("No messages found in request_args.messages");
                         }
@@ -413,3 +433,4 @@ async fn chat(
 
     Ok(response)
 }
+
