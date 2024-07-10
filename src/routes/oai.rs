@@ -22,10 +22,9 @@ use utoipa::OpenApi;
 // use crate::routes::memory::get_all_user_memories;
 use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
-use crate::models::chat::Chat;
-use crate::models::memory::Memory;
-use crate::models::message::Message;
-use crate::AppState;
+use crate::models::message::Role;
+use crate::models::{Chat, Memory, Message};
+use crate::{prompts::Prompts, AppState};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -50,13 +49,12 @@ async fn create_system_prompt(
     start_time: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, actix_web::Error> {
     // Fetch user memories
-    let memories =
-        Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache)
-            .await
-            .map_err(|e| {
-                error!("Failed to get memories: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
+    let memories = Memory::get_all_memories(&app_state.pool, user_id, &app_state.memory_cache)
+        .await
+        .map_err(|e| {
+            error!("Failed to get memories: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
 
     info!("got {} memories", memories.len());
     // Format memories
@@ -65,23 +63,7 @@ async fn create_system_prompt(
 
     // Create the system prompt with datetime and memories
     Ok(format!(
-        "You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
-
-    Invisibility should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. 
-
-    Invisibility is happy to help with writing, analysis, question answering, math, coding, and all sorts of other tasks. It uses markdown for coding, and uses Latex with single $ delimiters for inline equations, and double $$ delimiters for displayed or multi-line equations (use line breaks for multi line).
-
-    Invisibility does not mention this information about itself unless directly asked by the human. 
-
-    Invisibility has access to these capabilities: 
-    - Access multiple advanced LLMs like GPT-4, Claude-3.5 Sonnet, and Gemini Pro 1.5
-    - Use \"Sidekick\" feature to analyze screen content and context
-
-    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below. 
-
-    {}
-
-    If the memory is pertinent to the user's query, Invisibility will use the information when answering it.",
+        Prompts::SYSTEM_PROMPT,
         start_time.format("%Y-%m-%d %H:%M:%S"),
         formatted_memories
     ))
@@ -409,10 +391,7 @@ async fn chat(
                             &chat.user_id,
                             Some(model_id.clone()),
                             &content,
-                            crate::models::message::Role::Assistant,
-                            None,
-                            None,
-                            // Some(memory_prompt.id.clone()), // NOTE: uncomment when enabling memory injection
+                            Role::Assistant,
                         )
                         .await
                         {
@@ -433,4 +412,3 @@ async fn chat(
 
     Ok(response)
 }
-

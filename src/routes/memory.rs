@@ -1,7 +1,7 @@
 // routes/memory.rs
 
 use actix_web::{delete, get, post, put, web, HttpResponse};
-use anyhow::{Error, Result, Context};
+use anyhow::{Context, Error, Result};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs,
@@ -23,12 +23,9 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::middleware::auth::AuthenticatedUser;
-use crate::models::{Memory, MemoryPrompt, Message};
+use crate::models::{Memory, Message};
 use crate::prompts::Prompts;
-use crate::types::{
-    AddMemoryPromptRequest, CreateMemoryRequest, DeleteAllMemoriesRequest, GenerateMemoriesRequest,
-    GetAllMemoriesQuery, UpdateMemoryRequest,
-};
+use crate::types::{CreateMemoryRequest, GenerateMemoriesRequest, UpdateMemoryRequest};
 use crate::AppConfig;
 use crate::AppState;
 
@@ -37,7 +34,6 @@ async fn call_fn(
     name: &str,
     args: &str,
     user_id: &str,
-    memory_prompt_id: &Uuid,
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
 ) -> Result<Vec<Memory>> {
     let function_args: serde_json::Value = args.parse()?;
@@ -46,30 +42,17 @@ async fn call_fn(
         "create_memory" => {
             let memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
-            let new_memory = Memory::add_memory(
-                pool,
-                memory,
-                grouping,
-                user_id,
-                Some(memory_prompt_id),
-                memory_cache,
-            )
-            .await?;
+            let new_memory =
+                Memory::add_memory(pool, memory, grouping, user_id, memory_cache).await?;
             Ok(vec![new_memory])
         }
         "update_memory" => {
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
             let new_memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
-            let updated_memory = Memory::update_memory(
-                pool,
-                memory_id,
-                new_memory,
-                grouping,
-                user_id,
-                memory_cache,
-            )
-            .await?;
+            let updated_memory =
+                Memory::update_memory(pool, memory_id, new_memory, grouping, user_id, memory_cache)
+                    .await?;
 
             Ok(vec![updated_memory])
         }
@@ -86,15 +69,8 @@ async fn call_fn(
 
             for memory in memory_strings {
                 memories.push(
-                    Memory::add_memory(
-                        pool,
-                        memory.as_str().unwrap(),
-                        None,
-                        user_id,
-                        Some(memory_prompt_id),
-                        memory_cache,
-                    )
-                    .await?,
+                    Memory::add_memory(pool, memory.as_str().unwrap(), None, user_id, memory_cache)
+                        .await?,
                 );
             }
 
@@ -108,12 +84,10 @@ async fn call_fn(
 pub async fn get_all_user_memories(
     pool: Arc<PgPool>,
     user_id: &str,
-    memory_prompt_id: Option<Uuid>,
     memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
 ) -> Result<String> {
     // Fetch all memories with a given memory prompt for the user
-    let user_memories =
-        Memory::get_all_memories(&pool, user_id, memory_prompt_id, memory_cache).await?;
+    let user_memories = Memory::get_all_memories(&pool, user_id, memory_cache).await?;
     let formatted_memories = Memory::format_memories(user_memories);
 
     Ok(formatted_memories)
@@ -131,7 +105,6 @@ async fn create_memory(
         &req_body.content,
         req_body.grouping.as_deref(),
         &authenticated_user.user_id,
-        req_body.memory_prompt_id.as_ref(),
         &app_state.memory_cache,
     )
     .await
@@ -145,16 +118,13 @@ async fn create_memory(
 
 // read
 #[get("/")]
-async fn get_all_memories(
+async fn get_memories(
     app_state: web::Data<Arc<AppState>>,
     authenticated_user: AuthenticatedUser,
-    info: web::Query<GetAllMemoriesQuery>,
 ) -> Result<web::Json<Vec<Memory>>, actix_web::Error> {
     let memories = Memory::get_all_memories(
         &app_state.pool,
-        // &info.user_id,
         &authenticated_user.user_id,
-        info.memory_prompt_id,
         &app_state.memory_cache,
     )
     .await
@@ -213,55 +183,6 @@ async fn delete_memory(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[post("/delete_all")]
-async fn delete_all_memories(
-    app_state: web::Data<Arc<AppState>>,
-    authenticated_user: AuthenticatedUser,
-    req_body: web::Json<DeleteAllMemoriesRequest>,
-) -> Result<HttpResponse, actix_web::Error> {
-    if !authenticated_user.is_admin() {
-        return Err(actix_web::error::ErrorUnauthorized(
-            "Unauthorized".to_string(),
-        ));
-    }
-
-    let user_id = req_body.user_id.clone();
-
-    let deleted_count =
-        Memory::delete_all_memories(&app_state.pool, &user_id, &app_state.memory_cache)
-            .await
-            .map_err(|e| {
-                error!("Failed to delete all memories: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
-
-    Ok(HttpResponse::Ok().json(json!({ "deleted_count": deleted_count })))
-}
-
-#[post("/add_memory_prompt")]
-async fn add_memory_prompt(
-    app_state: web::Data<Arc<AppState>>,
-    _app_config: web::Data<Arc<AppConfig>>,
-    authenticated_user: AuthenticatedUser,
-    req_body: web::Json<AddMemoryPromptRequest>,
-) -> Result<web::Json<MemoryPrompt>, actix_web::Error> {
-    if !authenticated_user.is_admin() {
-        return Err(actix_web::error::ErrorUnauthorized(
-            "Unauthorized".to_string(),
-        ));
-    }
-
-    let memory_prompt =
-        MemoryPrompt::new(&app_state.pool, Some(Uuid::new_v4()), &req_body.prompt, req_body.example.clone())
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to add memory prompt: {:?}", e);
-                actix_web::error::ErrorInternalServerError(e)
-            })?;
-
-    Ok(web::Json(memory_prompt))
-}
-
 #[post("/generate_from_chat")]
 pub async fn generate_memories_from_chat_history_endpoint(
     app_state: web::Data<Arc<AppState>>,
@@ -277,7 +198,6 @@ pub async fn generate_memories_from_chat_history_endpoint(
 
     // let user_id = req_body.user_id.clone();
     let user_id = req_body.user_id.clone();
-    let memory_prompt_id = req_body.memory_prompt_id;
     let range = req_body.range.map(|(start, end)| {
         (
             DateTime::<Utc>::from_timestamp(start as i64, 0).unwrap(),
@@ -289,7 +209,6 @@ pub async fn generate_memories_from_chat_history_endpoint(
         &app_state,
         None,
         &user_id,
-        &memory_prompt_id,
         req_body.max_samples,
         req_body.samples_per_query,
         range,
@@ -311,7 +230,6 @@ pub async fn generate_memories_from_chat_history(
     app_state: &web::Data<Arc<AppState>>,
     sem: Option<Arc<Semaphore>>,
     user_id: &str,
-    memory_prompt_id: &Uuid,
     max_samples: Option<u32>,
     samples_per_query: Option<u32>,
     range: Option<(DateTime<Utc>, DateTime<Utc>)>,
@@ -364,7 +282,7 @@ pub async fn generate_memories_from_chat_history(
     }
 
     user_messages.reverse();
-    
+
     let estimate_token_count = |text: &str| text.chars().count() / 4;
     let bpe = cl100k_base().context("Failed to initialize tokenizer");
     let mut msgs_queue: VecDeque<Message> = VecDeque::from(user_messages.clone());
@@ -374,12 +292,19 @@ pub async fn generate_memories_from_chat_history(
     let mut sample_tokens = 0;
     let mut working_tokens: Option<(Uuid, Vec<usize>)> = None;
 
-    info!("Begin processing samples of max {} tokens", *max_sample_toks);
+    info!(
+        "Begin processing samples of max {} tokens",
+        *max_sample_toks
+    );
 
     while !msgs_queue.is_empty() {
         if i >= samples_per_query {
             i = 0;
-            info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_tokens);
+            info!(
+                "Sample {}: Total token count: {}",
+                generated_samples.len() + 1,
+                sample_tokens
+            );
             memory_content += "</end chat>\n";
             sample_tokens = 0;
             generated_samples.push(memory_content.clone());
@@ -421,10 +346,15 @@ pub async fn generate_memories_from_chat_history(
             if sample_tokens > *max_sample_toks {
                 let remaining_tokens = *max_sample_toks - (sample_tokens - num_tokens);
                 let truncated_msg = if let Ok(tokenizer) = &bpe {
-                    let truncated_tokens = working_tokens.as_ref()
+                    let truncated_tokens = working_tokens
+                        .as_ref()
                         .map(|(_, tokens)| tokens[..remaining_tokens].to_vec())
-                        .unwrap_or_else(|| tokenizer.encode_with_special_tokens(&msg.text)[..remaining_tokens].to_vec());
-                    tokenizer.decode(truncated_tokens)
+                        .unwrap_or_else(|| {
+                            tokenizer.encode_with_special_tokens(&msg.text)[..remaining_tokens]
+                                .to_vec()
+                        });
+                    tokenizer
+                        .decode(truncated_tokens)
                         .context("Failed to decode truncated message")
                         .unwrap_or_else(|_| msg.text.chars().take(remaining_tokens * 4).collect())
                 } else {
@@ -437,19 +367,28 @@ pub async fn generate_memories_from_chat_history(
                 );
 
                 i = 0;
-                info!("Sample {}: Total token count: {}", generated_samples.len() + 1, *max_sample_toks);
+                info!(
+                    "Sample {}: Total token count: {}",
+                    generated_samples.len() + 1,
+                    *max_sample_toks
+                );
                 sample_tokens = 0;
                 memory_content.push_str(&truncated_content);
                 generated_samples.push(memory_content.clone());
                 memory_content = String::new();
-                
+
                 let remaining_msg = if let Ok(tokenizer) = &bpe {
-                    let remaining_tokens = working_tokens.as_ref()
+                    let remaining_tokens = working_tokens
+                        .as_ref()
                         .map(|(_, tokens)| tokens[remaining_tokens..].to_vec())
-                        .unwrap_or_else(|| tokenizer.encode_with_special_tokens(&msg.text)[remaining_tokens..].to_vec());
+                        .unwrap_or_else(|| {
+                            tokenizer.encode_with_special_tokens(&msg.text)[remaining_tokens..]
+                                .to_vec()
+                        });
                     let remaining_len = remaining_tokens.len();
                     working_tokens = Some((msg.id.clone(), remaining_tokens.clone()));
-                    tokenizer.decode(remaining_tokens)
+                    tokenizer
+                        .decode(remaining_tokens)
                         .context("Failed to decode remaining message")
                         .unwrap_or_else(|_| msg.text.chars().skip(remaining_len * 4).collect())
                 } else {
@@ -465,20 +404,18 @@ pub async fn generate_memories_from_chat_history(
         }
     }
     if !memory_content.is_empty() {
-        info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_tokens);
+        info!(
+            "Sample {}: Total token count: {}",
+            generated_samples.len() + 1,
+            sample_tokens
+        );
         generated_samples.push(memory_content);
     }
 
     info!("Generated {} samples", generated_samples.len());
 
-    let generated_memories = process_memory_context(
-        app_state,
-        sem,
-        user_id,
-        &generated_samples,
-        memory_prompt_id,
-    )
-    .await?;
+    let generated_memories =
+        process_memory_context(app_state, sem, user_id, &generated_samples).await?;
 
     Ok(generated_memories)
 }
@@ -489,27 +426,13 @@ async fn process_memory_context(
     sem: Option<Arc<Semaphore>>,
     user_id: &str,
     samples: &[String],
-    memory_prompt_id: &Uuid,
 ) -> Result<Vec<Memory>> {
-    let memory_prompt = match MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id).await {
-        Ok(prompt) => prompt,
-        Err(_) => {
-            // fallback to default generate memory prompt
-            let default_memory_id = Uuid::from_u128(0);
-            match MemoryPrompt::get_by_id(&app_state.pool, &default_memory_id).await {
-                Ok(prompt) => prompt,
-                Err(_) => MemoryPrompt::new(&app_state.pool, Some(default_memory_id), Prompts::GENERATE_MEMORY, None).await?
-            }
-        }
-    };
-
     let mut generated_memories: Vec<Memory> = Vec::new();
     // NOTE: using gpt-4o tokenizer since claude's is not open source
     let bpe = cl100k_base().unwrap();
 
     let futures: Vec<_> = samples.iter().enumerate().map(|(index, sample)| {
         let app_state = app_state.clone();
-        let memory_prompt = memory_prompt.clone();
         let bpe = bpe.clone();
 
         async move {
@@ -522,11 +445,11 @@ async fn process_memory_context(
             let message_content = if tokens.len() > 15000 {
                 format!("{}\n\n{}\n\nReasoning for which user information to extract:\n<reasoning>\n",
                     sample,
-                    memory_prompt.prompt.clone()
+                    Prompts::GENERATE_MEMORY
                 )
             } else {
                 format!("{}\n\n{}\n\nReasoning for which user information to extract:\n<reasoning>\n",
-                    memory_prompt.prompt.clone(),
+                    Prompts::GENERATE_MEMORY,
                     sample
                 )
             };
@@ -545,9 +468,8 @@ async fn process_memory_context(
                     memory_id,
                     user_id,
                     result_content.as_str(),
-                    Some(&memory_prompt.id),
                     Some(now_utc),
-                    None
+                    None,
                 );
                 generated_memories.push(new_memory);
             }
@@ -570,21 +492,22 @@ async fn process_memory_context(
     )
     .await?;
 
-    let formatted_memories =
-        process_formatted_memories(user_id, &formatted_content, &memory_prompt.id).await?;
+    let formatted_memories = process_formatted_memories(user_id, &formatted_content).await?;
 
     info!("formatted memories:");
     for memory in &formatted_memories {
-        info!("ID: {}, Content: {}, Grouping: {:?}", memory.id, memory.content, memory.grouping);
+        info!(
+            "ID: {}, Content: {}, Grouping: {:?}",
+            memory.id, memory.content, memory.grouping
+        );
     }
 
     let existing_memories =
-        Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache).await?;
+        Memory::get_all_memories(&app_state.pool, user_id, &app_state.memory_cache).await?;
 
     increment_memory(
         app_state,
         user_id,
-        &memory_prompt.id,
         sem,
         &formatted_memories,
         &existing_memories,
@@ -592,11 +515,7 @@ async fn process_memory_context(
     .await
 }
 
-async fn process_formatted_memories(
-    user_id: &str,
-    formatted_content: &str,
-    memory_prompt_id: &Uuid,
-) -> Result<Vec<Memory>> {
+async fn process_formatted_memories(user_id: &str, formatted_content: &str) -> Result<Vec<Memory>> {
     let memory_regex = regex::Regex::new(r"(?s)<memory>(.*?)</memory>").unwrap();
     let mut inserted_memories = Vec::new();
 
@@ -613,14 +532,7 @@ async fn process_formatted_memories(
                 .collect();
 
             inserted_memories.extend(memories.into_iter().map(|memory| {
-                Memory::new(
-                    Uuid::new_v4(),
-                    user_id,
-                    &memory,
-                    Some(memory_prompt_id),
-                    None,
-                    Some(&grouping)
-                )
+                Memory::new(Uuid::new_v4(), user_id, &memory, None, Some(&grouping))
             }));
         }
     }
@@ -631,7 +543,6 @@ async fn process_formatted_memories(
 async fn increment_memory(
     app_state: &web::Data<Arc<AppState>>,
     user_id: &str,
-    memory_prompt_id: &Uuid,
     sem: Option<Arc<Semaphore>>,
     new_memories: &[Memory],
     existing_memories: &Vec<Memory>,
@@ -644,15 +555,8 @@ async fn increment_memory(
     info!("  • Existing memories:{:>5}", existing_memory_count);
 
     if existing_memories.is_empty() {
-        let added_memories = process_memories(
-            app_state,
-            "create_memory",
-            user_id,
-            memory_prompt_id,
-            sem,
-            new_memories,
-        )
-        .await?;
+        let added_memories =
+            process_memories(app_state, "create_memory", user_id, sem, new_memories).await?;
         let added_memory_count = added_memories.len();
         let new_total_count = added_memory_count;
 
@@ -681,14 +585,8 @@ async fn increment_memory(
         &prompt,
     )
     .await?;
-    let filtered_memories = parse_ai_response(
-        app_state,
-        user_id,
-        existing_memories,
-        memory_prompt_id,
-        &response,
-    )
-    .await?;
+    let filtered_memories =
+        parse_ai_response(app_state, user_id, existing_memories, &response).await?;
 
     let memories_to_update: Vec<Memory> = filtered_memories
         .iter()
@@ -706,20 +604,12 @@ async fn increment_memory(
         app_state,
         "update_memory",
         user_id,
-        memory_prompt_id,
         sem.clone(),
         &memories_to_update,
     )
     .await?;
-    let added_memories = process_memories(
-        app_state,
-        "create_memory",
-        user_id,
-        memory_prompt_id,
-        sem,
-        &memories_to_add,
-    )
-    .await?;
+    let added_memories =
+        process_memories(app_state, "create_memory", user_id, sem, &memories_to_add).await?;
     let updated_memory_count = updated_memories.len();
     let added_memory_count = added_memories.len();
     let new_total_count = existing_memory_count + added_memory_count;
@@ -735,7 +625,6 @@ async fn process_memories(
     app_state: &web::Data<Arc<AppState>>,
     op_type: &str,
     user_id: &str,
-    memory_prompt_id: &Uuid,
     sem: Option<Arc<Semaphore>>,
     memories: &[Memory],
 ) -> Result<Vec<Memory>> {
@@ -743,7 +632,6 @@ async fn process_memories(
         let app_state = app_state.clone();
         let sem = sem.clone();
         async move {
-
             let args = json!({
                 "memory_id": memory.id,
                 "memory": memory.content,
@@ -761,7 +649,6 @@ async fn process_memories(
                 op_type,
                 &args,
                 user_id,
-                memory_prompt_id,
                 &app_state.memory_cache,
             )
             .await?
@@ -787,7 +674,6 @@ async fn parse_ai_response(
     app_state: &web::Data<Arc<AppState>>,
     user_id: &str,
     existing_memories: &[Memory],
-    memory_prompt_id: &Uuid,
     response: &str,
 ) -> Result<Vec<Memory>, Error> {
     let futures = FILTERED_MEMORY_REGEX
@@ -833,9 +719,8 @@ async fn parse_ai_response(
                         Uuid::new_v4(),
                         user_id,
                         content,
-                        Some(memory_prompt_id),
                         None,
-                        Some(&grouping)
+                        Some(&grouping),
                     ))
                 }
                 "UPDATE" => {
@@ -887,7 +772,6 @@ async fn parse_ai_response(
                                 existing_memory.id,
                                 user_id,
                                 updated_memory.as_str().trim(),
-                                Some(memory_prompt_id),
                                 None,
                                 existing_memory.grouping.as_deref(),
                             )

@@ -20,8 +20,7 @@ pub struct Memory {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
-    pub memory_prompt_id: Option<Uuid>,
-    pub grouping: Option<String>
+    pub grouping: Option<String>,
 }
 
 impl Default for Memory {
@@ -33,8 +32,7 @@ impl Default for Memory {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted_at: None,
-            memory_prompt_id: None,
-            grouping: None
+            grouping: None,
         }
     }
 }
@@ -74,29 +72,21 @@ impl Memory {
         memory: &str,
         grouping: Option<&str>,
         user_id: &str,
-        prompt_id: Option<&Uuid>,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
     ) -> Result<Self> {
         let now_utc = Utc::now();
         let memory_id = Uuid::new_v4();
 
-        let new_memory = Memory::new(
-            memory_id,
-            user_id,
-            memory,
-            prompt_id,
-            Some(now_utc),
-            grouping
-        );
+        let new_memory = Memory::new(memory_id, user_id, memory, Some(now_utc), grouping);
 
         let memory = query_as!(
             Memory,
             r#"
             INSERT INTO memories (
                 id, user_id, created_at, updated_at, 
-                content, memory_prompt_id, grouping
+                content, grouping
             ) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7) 
+            VALUES ($1, $2, $3, $4, $5, $6) 
             RETURNING *
             "#,
             new_memory.id,
@@ -104,7 +94,6 @@ impl Memory {
             new_memory.created_at,
             new_memory.updated_at,
             new_memory.content,
-            new_memory.memory_prompt_id,
             new_memory.grouping
         )
         .fetch_one(pool)
@@ -271,7 +260,6 @@ impl Memory {
     pub async fn get_all_memories(
         pool: &PgPool,
         user_id: &str,
-        memory_prompt_id: Option<Uuid>,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
     ) -> Result<Vec<Self>> {
         let start = Instant::now();
@@ -279,22 +267,15 @@ impl Memory {
         // Try to get memories from cache first
         if let Some(user_memories) = memory_cache.get(user_id).await {
             let cached_memories: Vec<Self> = user_memories.values().cloned().collect();
-            let filtered_memories = match memory_prompt_id {
-                Some(prompt_id) => cached_memories
-                    .into_iter()
-                    .filter(|memory| memory.memory_prompt_id == Some(prompt_id))
-                    .collect(),
-                None => cached_memories,
-            };
 
             let duration = start.elapsed();
             info!("Query execution time: {:?}", duration);
             info!(
                 "Retrieved {} memories from cache for user: {}",
-                filtered_memories.len(),
+                cached_memories.len(),
                 user_id
             );
-            return Ok(filtered_memories);
+            return Ok(cached_memories);
         }
 
         // If not in cache, fetch from database
@@ -401,7 +382,7 @@ impl Memory {
                     }
                 }
                 GENERIC_GROUP.clone()
-            },
+            }
             None => GENERIC_GROUP.clone(),
         }
     }
@@ -412,7 +393,6 @@ impl Memory {
         id: Uuid,
         user_id: &str,
         content: &str,
-        prompt_id: Option<&Uuid>,
         created_at: Option<DateTime<Utc>>,
         grouping: Option<&str>,
     ) -> Self {
@@ -422,7 +402,6 @@ impl Memory {
             created_at: created_at.unwrap_or_else(Utc::now),
             updated_at: Utc::now(),
             content: content.to_string(),
-            memory_prompt_id: prompt_id.copied(),
             grouping: grouping.map(|g| g.to_string()),
             ..Default::default()
         }

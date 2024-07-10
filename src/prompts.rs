@@ -1,6 +1,23 @@
 pub struct Prompts;
 
 impl Prompts {
+    pub const SYSTEM_PROMPT: &'static str = "You are Invisibility, an AI-powered personal assistant integrated into macOS. The current date is {}. 
+
+    Invisibility should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. 
+
+    Invisibility is happy to help with writing, analysis, question answering, math, coding, and all sorts of other tasks. It uses markdown for coding, and uses Latex with single $ delimiters for inline equations, and double $$ delimiters for displayed or multi-line equations (use line breaks for multi line).
+
+    Invisibility does not mention this information about itself unless directly asked by the human. 
+
+    Invisibility has access to these capabilities: 
+    - Access multiple advanced LLMs like GPT-4, Claude-3.5 Sonnet, and Gemini Pro 1.5
+    - Use \"Sidekick\" feature to analyze screen content and context
+
+    Invisibility has interacted with the user in the past, and has memory of the user's preferences, usage patterns, or other quirks specific to the user. Memory about the user is provided below. 
+
+    {}
+
+    If the memory is pertinent to the user's query, Invisibility will use the information when answering it.";
     pub const AUTORENAME_1: &'static str = "Create a concise, 3-5 word phrase as a header for the following. Please return only the 3-5 word header and no additional words or characters: \"yo where are pirate bases\"";
     pub const AUTORENAME_2: &'static str = "Pirate Fortresses and their Origins";
     pub const AUTORENAME_3: &'static str = r###"Create a concise, 3-5 word phrase as a header for the following. Please return only the 3-5 word header and no additional words or characters: "// components/PageLayout.jsx
@@ -98,11 +115,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   DataGrid,
   GridToolbarContainer,
-  GridToolbarColumnsButton,
-  GridToolbarFilterButton,
-  GridToolbarExport,
   GridToolbarDensitySelector,
-  useGridApiRef,
   getGridStringOperators,
   GridFilterInputValue,
 } from "@mui/x-data-grid";
@@ -115,21 +128,13 @@ import * as XLSX from "xlsx";
 import {
   Button,
   Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Typography,
   Grid,
-  Checkbox,
   FormControlLabel,
-  IconButton,
 } from "@mui/material";
 import ReusableForm from "../components/ReusableForm";
 import ModalOverlay from "../components/ModalOverlay";
 import { styled } from "@mui/system";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DescriptionIcon from "@mui/icons-material/Description";
-import CloseIcon from "@mui/icons-material/Close";
 
 const DataGridWrapper = ({
   apiEndpoint,
@@ -158,36 +163,6 @@ const DataGridWrapper = ({
   );
   const [customizationOpen, setCustomizationOpen] = useState(false);
   const [selectAll, setSelectAll] = useState(true);
-
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: "array" });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-      const filteredData = jsonData.filter((row) =>
-        row.some((cell) => cell !== undefined && cell !== null && cell !== "")
-      );
-
-      const importedData = filteredData.slice(1).map((row, index) => {
-        const rowData = row.reduce((obj, value, index) => {
-          const key = jsonData[0][index];
-          obj[key] = value;
-          return obj;
-        }, {});
-        return { ...rowData, id: index + 1 };
-      });
-
-      setImportedData(importedData);
-      setShowImportPreview(true);
-      closeModal();
-    };
-    reader.readAsArrayBuffer(file);
-  };
 
   return (
     <>
@@ -544,7 +519,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </updated memory> 
     </example output>
     "###;
-    
+
     pub const GENERATE_MEMORY: &'static str = r###"<instructions>
     You’re an assistant AI that helps a personal AI learn about their user. The personal AI’s job is to tailor their responses to fit the preferences of the user. These preferences often include but are not limited to the length, tone, structure, and formatting of response. As an assistant AI, your task is to extract information about the user from their chat messages above located in <chat_messages></chat_messages> tags. Your goal is to identify “user information,” which are unique traits about their personality and preferences. You will then communicate this information to the personal AI so it can be maximally helpful to the user. 
 

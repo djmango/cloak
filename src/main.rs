@@ -103,7 +103,6 @@ async fn main(
                             &web::Data::new(app_state),
                             Some(semaphore),
                             &user_id,
-                            &Uuid::parse_str("b66ebb74-09c2-4c67-bf99-52c05e7dbe44").unwrap(),
                             None,
                             None,
                             Some((yesterday, Utc::now())),
@@ -174,12 +173,10 @@ async fn main(
                 .service(
                     web::scope("/memories")
                         .service(routes::memory::generate_memories_from_chat_history_endpoint)
-                        .service(routes::memory::add_memory_prompt)
                         .service(routes::memory::create_memory)
-                        .service(routes::memory::get_all_memories)
+                        .service(routes::memory::get_memories)
                         .service(routes::memory::update_memory)
-                        .service(routes::memory::delete_memory)
-                        .service(routes::memory::delete_all_memories),
+                        .service(routes::memory::delete_memory),
                 )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))

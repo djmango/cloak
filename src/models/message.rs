@@ -44,9 +44,7 @@ pub struct Message {
     pub model_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub memory_ids: Option<Vec<Uuid>>,
     pub upvoted: Option<bool>,
-    pub memory_prompt_id: Option<Uuid>,
 }
 
 impl Default for Message {
@@ -61,15 +59,12 @@ impl Default for Message {
             model_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            memory_ids: None,
             upvoted: None,
-            memory_prompt_id: None,
         }
     }
 }
 
 impl Message {
-    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         pool: &PgPool,
         chat_id: Uuid,
@@ -77,8 +72,6 @@ impl Message {
         model_id: Option<String>,
         text: &str,
         role: Role,
-        memory_ids: Option<Vec<Uuid>>,
-        memory_prompt_id: Option<Uuid>,
     ) -> Result<Self> {
         let message = Message {
             chat_id,
@@ -86,16 +79,14 @@ impl Message {
             text: text.to_string(),
             role,
             model_id,
-            memory_ids,
-            memory_prompt_id,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_ids, created_at, updated_at, memory_prompt_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
             message.id,
             message.chat_id,
@@ -104,10 +95,8 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
-            message.memory_ids.as_deref(),
             message.created_at,
-            message.updated_at,
-            message.memory_prompt_id
+            message.updated_at
         )
         .execute(pool)
         .await?;
@@ -170,15 +159,14 @@ impl Message {
             role,
             model_id,
             created_at: created_at.unwrap_or_else(Utc::now),
-            memory_ids: None,
             ..Default::default()
         };
 
         // Save the message to the database
         query!(
             r#"
-            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, memory_ids, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO messages (id, chat_id, user_id, text, role, regenerated, model_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
             message.id,
             message.chat_id,
@@ -187,7 +175,6 @@ impl Message {
             message.role.clone() as Role, // idk why this is needed but it is
             message.regenerated,
             message.model_id,
-            message.memory_ids.as_deref(),
             message.created_at,
             message.updated_at
         )
