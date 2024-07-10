@@ -263,15 +263,6 @@ After I add a new record, I need to refresh my screen to see the updated record.
     pub const AUTORENAME_4: &'static str = "React Page Updated Record";
     pub const AUTORENAME_5: &'static str = "how to spell propoganda";
     pub const AUTORENAME_6: &'static str = "Spelling of Propaganda";
-    pub const EMOJI_MEMORY: &'static str = r###"You're an emotionally intelligent emoji generator. Your job is to pick the right emoji for user description categories. The emoji should perfectly describe the category. Be biased towards friendly, gender-neutral emojis. You will only output an emoji, nothing else. 
-
-    <example input>
-    Information Consumption
-    </example input>
-    <example output>
-    📰
-    </example output>
-    "###;
     pub const FORMATTING_MEMORY: &'static str = r###"You are given a large collection of descriptions of user preferences, behaviors, traits, etc. You will help a personal AI assist the user by parsing out any redundancies present in the description. You will group the user description into distinct categories, and output each category inside a <memory></memory> tag. 
 
     Stylistic Rules:
@@ -393,63 +384,10 @@ After I add a new record, I need to refresh my screen to see the updated record.
     
     "###;
 
-    pub const INCREMENT_MEMORY: &'static str = r###"<instruction>
-    Task: Act as a memory manager. Decide how to incorporate new memories into a database of old memories. Give either "NEW" or "REPEAT" or "UPDATE" verdict for new memory. 
-    
-    Key Terms:
-    - Memory: A piece of information about the user's preferences, traits, or behaviors. 
-    - Memory Grouping: A category that contains related memories.
-    
-    Steps:
-    1. Review the given new memories and existing memory groupings.
-    2. For each new memory, follow the decision rules to determine its categorization.
-    3. Provide your analysis in the specified format.
-    
-    Decision Rules (apply in order):
-    1. Existing Grouping Match: Can the memory fit into an existing grouping?
-       - If YES: Assign "OLD" as a temporary verdict with the existing grouping name. Proceed to Rule 3.
-       - If NO: Proceed to Rule 2.
-    
-    2. New Grouping Necessity: 
-       a) Do none of the existing grouping names adequately describe the new memory?
-       b) Is there a compelling reason to create a new grouping?
-       - If BOTH are YES: Assign "NEW" verdict with a suggested grouping name (max 2 words, simple and human-readable).
-       - If EITHER is NO: Assign "OLD" as a temporary verdict and proceed to Rule 3.
-    
-    3. Similarity Check: (Only if temporary verdict is "OLD")
-       - Is the memory too similar to existing memories in the grouping? 
-         (Consider content, specificity, and unique information provided)
-       - If too SIMILAR: Proceed to Rule 4. 
-       - If NOT TOO SIMILAR: Confirm "OLD" verdict and explain the unique contribution.
-    
-    4. Decide if memory is repetitive, or contributes unique information.
-    If the memory contributes no unique piece of information, give a REPEAT verdict. 
-    If the memory contributes a unique piece of information, give an UPDATE verdict.  
-    
-    Output Format:
-    For each new memory, provide your analysis as follows:
-    <filtered memory>
-    Content: [Exact memory content]
-    Reasoning: [Your step-by-step reasoning, explicitly referencing each rule applied]
-    Verdict: NEW, [new_grouping_name] || OLD, [existing_grouping_name] || UPDATE, [uuid of memory to update] || REPEAT
-    </filtered memory>
-    
-    Formatting Rules:
-    - Each content, reasoning, and verdict should be on a single line.
-    - Use only one newline between content, reasoning, and verdict.
-    - Grouping names should be max 2 words, simple, and human-readable.
-    
-    New Memories:
-    {0}
-    
-    Existing Memory Groupings:
-    {1}
-    </instruction>
-    
-    <example>
+    pub const INCREMENT_MEMORY: &'static str = r###"<example>
     Existing Memory Groups:
     <memory group>
-    Learning Preferences
+    Learning
     - bdf72af5-81bb-4b60-84c8-211bd7bc1236, Appreciates concise, direct answers to technical questions
     - 4e2bed67-5a48-49c2-9660-32d9ecb303ac, Values detailed, technical explanations with code examples
     - de452f3d-92d9-4be7-a642-b7f53ffc5478, Prefers step-by-step instructions for problem-solving
@@ -466,7 +404,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     - 797d2d89-e4f1-4163-b7e6-704c2eef4289, History and geography 
     </memory group>
     <memory group>
-    Personal Traits 
+    Personal 
     - 3488f931-0764-4df5-8458-6d3e87135804, Detail-oriented in programming and UI design 
     - b31e9c27-cd4f-4111-a75d-8469eee843ec, Values efficiency and performance in development 
     - 234cc3e8-4448-4d97-8d77-5917fedfabac, Name is Sulaiman 
@@ -474,7 +412,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     - 9aa729ea-d86a-41b6-b592-e27bb4381c55, Proactive in optimizing code and workflows 
     </memory group>
     <memory group>
-    Communication Style
+    Communication
     - 11925f15-7ecf-477f-9362-9362592f8db1, Prefers direct, concise communication focused on technical details
     - 66d6cc25-d7fc-43d0-aa4e-146db88f6e61, Often uses very short messages, single words, or random character strings
     - f16c2692-bdf3-43e0-a1f0-1575321b6320, Occasionally uses casual language, including expletives
@@ -529,6 +467,59 @@ After I add a new record, I need to refresh my screen to see the updated record.
     Verdict: NEW, Projects
     </filtered memory>
     </example>
+
+    <instruction>
+    Existing Memory Groupings:
+    {0}
+
+    New Memories:
+    {1}
+
+    Task: Act as a memory manager. Decide how to incorporate new memories into a database of old memories. Give either "NEW" or "REPEAT" or "UPDATE" verdict for new memory. 
+    
+    Key Terms:
+    - Memory: A piece of information about the user's preferences, traits, or behaviors. 
+    - Memory Grouping: A category that contains related memories.
+    
+    Steps:
+    1. Review the given new memories and existing memory groupings.
+    2. For each new memory, follow the decision rules to determine its categorization.
+    3. Provide your analysis in the specified format.
+    
+    Decision Rules (apply in order):
+    1. Existing Grouping Match: Can the memory fit into an existing grouping?
+       - If YES: Assign "OLD" as a temporary verdict with the existing grouping name. Proceed to Rule 3.
+       - If NO: Proceed to Rule 2.
+    
+    2. New Grouping Necessity: 
+       a) Do none of the existing grouping names adequately describe the new memory?
+       b) Is there a compelling reason to create a new grouping?
+       - If BOTH are YES: Assign "NEW" verdict with a suggested grouping name. The grouping name MUST be selected from the set of allowed group names given in "Formatting Rules" section below. No other grouping names are allowed.
+       - If EITHER is NO: Assign "OLD" as a temporary verdict and proceed to Rule 3.
+    
+    3. Similarity Check: (Only if temporary verdict is "OLD")
+       - Is the memory too similar to existing memories in the grouping? 
+         (Consider content, specificity, and unique information provided)
+       - If too SIMILAR: Proceed to Rule 4. 
+       - If NOT TOO SIMILAR: Confirm "OLD" verdict and explain the unique contribution.
+    
+    4. Decide if memory is repetitive, or contributes unique information.
+    If the memory contributes no unique piece of information, give a REPEAT verdict. 
+    If the memory contributes a unique piece of information, give an UPDATE verdict.  
+    
+    Output Format:
+    For each new memory, provide your analysis as follows:
+    <filtered memory>
+    Content: [Exact memory content]
+    Reasoning: [Your step-by-step reasoning, explicitly referencing each rule applied]
+    Verdict: NEW, [new_grouping_name] || OLD, [existing_grouping_name] || UPDATE, [uuid of memory to update] || REPEAT
+    </filtered memory>
+    
+    Formatting Rules:
+    - Each content, reasoning, and verdict should be on a single line.
+    - Use only one newline between content, reasoning, and verdict.
+    - Grouping names should be chosen from this set of allowed names: {2}
+    </instruction>
     "###;
 
     pub const UPDATE_MEMORY: &'static str = r###"<instruction> 

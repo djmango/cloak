@@ -1,7 +1,7 @@
 // routes/memory.rs
 
 use actix_web::{delete, get, post, put, web, HttpResponse};
-use anyhow::{Error, Result};
+use anyhow::{Error, Result, Context};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs,
@@ -15,7 +15,7 @@ use moka::future::Cache;
 use regex::Regex;
 use serde_json::json;
 use sqlx::PgPool;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tiktoken_rs::cl100k_base;
 use tokio::sync::Semaphore;
@@ -46,12 +46,10 @@ async fn call_fn(
         "create_memory" => {
             let memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
-            let emoji = function_args.get("emoji").and_then(|e| e.as_str());
             let new_memory = Memory::add_memory(
                 pool,
                 memory,
                 grouping,
-                emoji,
                 user_id,
                 Some(memory_prompt_id),
                 memory_cache,
@@ -63,13 +61,11 @@ async fn call_fn(
             let memory_id = Uuid::parse_str(function_args["memory_id"].as_str().unwrap())?;
             let new_memory = function_args["memory"].as_str().unwrap();
             let grouping = function_args.get("grouping").and_then(|g| g.as_str());
-            let emoji = function_args.get("emoji").and_then(|e| e.as_str());
             let updated_memory = Memory::update_memory(
                 pool,
                 memory_id,
                 new_memory,
                 grouping,
-                emoji,
                 user_id,
                 memory_cache,
             )
@@ -93,7 +89,6 @@ async fn call_fn(
                     Memory::add_memory(
                         pool,
                         memory.as_str().unwrap(),
-                        None,
                         None,
                         user_id,
                         Some(memory_prompt_id),
@@ -135,7 +130,6 @@ async fn create_memory(
         &app_state.pool,
         &req_body.content,
         req_body.grouping.as_deref(),
-        req_body.emoji.as_deref(),
         &authenticated_user.user_id,
         req_body.memory_prompt_id.as_ref(),
         &app_state.memory_cache,
@@ -169,14 +163,6 @@ async fn get_all_memories(
         actix_web::error::ErrorInternalServerError(e)
     })?;
 
-    // NOTE: What is this for?
-    // if let Some(format) = info.format {
-    //     if format {
-    //         let format_with_id = false;
-    //         let formatted_memories = Memory::format_grouped_memories(&memories, format_with_id);
-    //         return Ok(web::Json(formatted_memories));
-    //     }
-    // }
     Ok(web::Json(memories))
 }
 
@@ -193,7 +179,6 @@ async fn update_memory(
         memory_id.into_inner(),
         &req_body.content,
         req_body.grouping.as_deref(),
-        req_body.emoji.as_deref(),
         &authenticated_user.user_id,
         &app_state.memory_cache,
     )
@@ -317,6 +302,11 @@ pub async fn generate_memories_from_chat_history_endpoint(
     })
 }
 
+lazy_static! {
+    static ref max_sample_toks: usize = 50000;
+    static ref long_ctxt_tokens: usize = 15000;
+}
+
 pub async fn generate_memories_from_chat_history(
     app_state: &web::Data<Arc<AppState>>,
     sem: Option<Arc<Semaphore>>,
@@ -374,37 +364,100 @@ pub async fn generate_memories_from_chat_history(
     }
 
     user_messages.reverse();
+    
+    let estimate_token_count = |text: &str| text.chars().count() / 4;
+    let bpe = cl100k_base().context("Failed to initialize tokenizer");
+    let mut msgs_queue: VecDeque<Message> = VecDeque::from(user_messages.clone());
+    let mut generated_samples = Vec::new();
+    let mut memory_content = String::new();
+    let mut i = 0;
+    let mut sample_toks = 0;
 
-    let mut generated_samples: Vec<String> = Vec::new();
-    let mut start_index = 0;
+    info!("Begin processing samples of max {} tokens", *max_sample_toks);
 
-    while start_index < user_messages.len() {
-        let end_index = std::cmp::min(
-            start_index + samples_per_query as usize,
-            user_messages.len(),
-        );
-        let sample_slice = user_messages[start_index..end_index].to_vec();
+    while !msgs_queue.is_empty() {
 
-        let mut memory_ctxt = String::new();
-        memory_ctxt.push_str("<chat_messages>\n");
+        // push to samples and reset memory_content
+        if i >= samples_per_query {
+            i = 0;
+            info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+            memory_content += "</end chat>\n";
+            sample_toks = 0;
+            generated_samples.push(memory_content.clone());
+            memory_content = String::new();
+        }
 
-        for (i, msg) in sample_slice.iter().enumerate() {
+        if let Some(msg) = msgs_queue.pop_front() {
+            i+=1;
+
             let message_content = format!(
                 "<message {}: {}>\n{}\n</message {}: {}>\n",
                 i, msg.role, msg.text, i, msg.role
             );
-            memory_ctxt.push_str(&message_content);
+
+            // count
+            let num_tokens = match &bpe {
+                Ok(tokenizer) => tokenizer.encode_with_special_tokens(&msg.text).len(),
+                Err(_) => estimate_token_count(&msg.text),
+            };
+
+            sample_toks += num_tokens;
+
+            // if sample_toks is over limit after adding current msg, 
+            // finish processing current sample after adding truncated current msg
+            // then put reminder of truncated msg back in queue as beginning of next sample 
+            if sample_toks > *max_sample_toks {
+                let remaining_tokens = *max_sample_toks - sample_toks;
+                let truncated_msg = if let Ok(tokenizer) = &bpe {
+                    let truncated_tokens = tokenizer.encode_with_special_tokens(
+                        &msg.text)[..remaining_tokens].to_vec();
+                    tokenizer.decode(truncated_tokens)
+                        .context("Failed to decode truncated message")
+                        .unwrap_or_else(|_| {
+                            msg.text.chars().take(remaining_tokens.clone() * 4).collect()
+                    })
+                } else {
+                    // Fallback to character-based truncation
+                    msg.text.chars().take(remaining_tokens * 4).collect()
+                };
+
+                let truncated_content = format!(
+                    "<message {}: {}>\n{}\n</message {}: {}>\n",
+                    i, msg.role, truncated_msg, i, msg.role
+                );
+
+                i = 0;
+                info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+                sample_toks = 0;
+                memory_content.push_str(&truncated_content);
+                generated_samples.push(memory_content.clone());
+                memory_content = String::new();
+                
+                // Push the remaining part of the message back to the queue
+                let remaining_msg = if let Ok(tokenizer) = &bpe {
+                    let remaining_tokens = tokenizer.encode_with_special_tokens(
+                        &msg.text)[remaining_tokens..].to_vec();
+                    let remaining_len = remaining_tokens.len();
+                    tokenizer.decode(remaining_tokens)
+                        .context("Failed to decode remaining message")
+                        .unwrap_or_else(|_| {
+                            msg.text.chars().skip(remaining_len * 4).collect()
+                        })
+                } else {
+                    // Fallback to character-based splitting
+                    msg.text.chars().skip(remaining_tokens * 4).collect()
+                };
+
+                msgs_queue.push_front(Message {text: remaining_msg,..msg});
+            } else {
+                memory_content.push_str(&message_content);
+            }
         }
-
-        memory_ctxt.push_str("</chat_messages>\n");
-
-        generated_samples.push(memory_ctxt);
-
-        if end_index == user_messages.len() {
-            break;
-        }
-
-        start_index += samples_per_query as usize;
+    }
+    // Don't forget to push the last memory_content if it's not empty
+    if !memory_content.is_empty() {
+        info!("Sample {}: Total token count: {}", generated_samples.len() + 1, sample_toks);
+        generated_samples.push(memory_content);
     }
 
     info!("Generated {} samples", generated_samples.len());
@@ -480,8 +533,7 @@ async fn process_memory_context(
                     result_content.as_str(),
                     Some(memory_prompt_id),
                     Some(now_utc),
-                    None,
-                    None,
+                    None
                 );
                 generated_memories.push(new_memory);
             }
@@ -511,8 +563,6 @@ async fn process_memory_context(
 
     let existing_memories =
         Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache).await?;
-
-    // if no existing memories, skip
 
     increment_memory(
         app_state,
@@ -552,8 +602,7 @@ async fn process_formatted_memories(
                     &memory,
                     Some(memory_prompt_id),
                     None,
-                    Some(&grouping),
-                    None,
+                    Some(&grouping)
                 )
             }));
         }
@@ -598,14 +647,16 @@ async fn increment_memory(
 
     let format_with_id = true;
     let formatted_memories = Memory::format_grouped_memories(existing_memories, format_with_id);
+    let allowed_groups_list_str = Memory::formated_allowed_groups();
     let new_memories_str = new_memories
         .iter()
         .map(|m| format!("- {}", m.content))
         .collect::<Vec<_>>()
         .join("\n\n");
     let prompt = Prompts::INCREMENT_MEMORY
-        .replace("{0}", &new_memories_str)
-        .replace("{1}", &formatted_memories);
+        .replace("{0}", &formatted_memories)
+        .replace("{1}", &new_memories_str)
+        .replace("{2}", &allowed_groups_list_str);
 
     let response = get_chat_completion(
         &app_state.keywords_client,
@@ -675,23 +726,11 @@ async fn process_memories(
         let app_state = app_state.clone();
         let sem = sem.clone();
         async move {
-            let emoji = match &memory.emoji {
-                Some(e) => e.to_string(),
-                None => {
-                    get_emoji(
-                        &app_state,
-                        user_id,
-                        memory.grouping.as_deref().unwrap_or(""),
-                    )
-                    .await?
-                }
-            };
 
             let args = json!({
                 "memory_id": memory.id,
                 "memory": memory.content,
                 "grouping": memory.grouping,
-                "emoji": emoji
             })
             .to_string();
 
@@ -718,52 +757,6 @@ async fn process_memories(
     try_join_all(futures).await
 }
 
-async fn get_emoji(
-    app_state: &web::Data<Arc<AppState>>,
-    user_id: &str,
-    grouping: &str,
-) -> Result<String> {
-    // First, check for existing emoji in the memory cache
-    if let Some(existing_emoji) =
-        app_state
-            .memory_cache
-            .get(user_id)
-            .await
-            .and_then(|user_memories| {
-                user_memories
-                    .values()
-                    .find(|m| m.grouping.as_deref() == Some(grouping))
-                    .and_then(|m| m.emoji.clone())
-            })
-    {
-        info!(
-            "Using existing emoji '{}' for grouping '{}'",
-            existing_emoji, grouping
-        );
-        return Ok(existing_emoji);
-    }
-
-    // If no existing emoji, generate a new one
-    let message_content = format!("{}\n\n{}", Prompts::EMOJI_MEMORY, grouping);
-    let emoji_response = get_chat_completion(
-        &app_state.keywords_client,
-        "groq/llama3-70b-8192",
-        &message_content,
-    )
-    .await?;
-    let generated_emoji = emoji_response
-        .trim()
-        .chars()
-        .next()
-        .unwrap_or('📝')
-        .to_string();
-    info!(
-        "Generated new emoji '{}' for grouping '{}'",
-        generated_emoji, grouping
-    );
-    Ok(generated_emoji)
-}
-
 lazy_static! {
     static ref FILTERED_MEMORY_REGEX: Regex =
         Regex::new(r"(?s)<filtered memory>(.*?)</filtered memory>").unwrap();
@@ -786,10 +779,7 @@ async fn parse_ai_response(
         .map(|(idx, capture)| async move {
             let memory_block = match capture.get(1) {
                 Some(m) => m.as_str().trim(),
-                None => {
-                    info!("Failed to get memory block for idx {}", idx);
-                    return None;
-                }
+                None => return None,
             };
 
             let content = match CONTENT_REGEX
@@ -797,10 +787,7 @@ async fn parse_ai_response(
                 .and_then(|cap| cap.get(1))
             {
                 Some(m) => m.as_str().trim(),
-                None => {
-                    info!("Failed to extract content for idx {}", idx);
-                    return None;
-                }
+                None => return None,
             };
 
             let verdict = match VERDICT_REGEX
@@ -808,19 +795,13 @@ async fn parse_ai_response(
                 .and_then(|cap| cap.get(1))
             {
                 Some(m) => m.as_str().trim(),
-                None => {
-                    info!("Failed to extract verdict for idx {}", idx);
-                    return None;
-                }
+                None => return None,
             };
 
             let (verdict_type, grouping_or_memory) = match verdict.split_once(',') {
                 Some((v, g)) => (v.trim(), Some(g.trim())),
                 None if verdict == "REPEAT" => ("REPEAT", None),
-                _ => {
-                    info!("Invalid verdict format for idx {}", idx);
-                    return None;
-                }
+                _ => return None,
             };
 
             info!(
@@ -829,23 +810,22 @@ async fn parse_ai_response(
             );
 
             match verdict_type {
-                "NEW" | "OLD" => Some(Memory::new(
-                    Uuid::new_v4(),
-                    user_id,
-                    content,
-                    Some(memory_prompt_id),
-                    None,
-                    grouping_or_memory,
-                    None, // We'll generate emoji later if needed
-                )),
+                "NEW" | "OLD" => {
+                    let grouping = grouping_or_memory.map(Memory::get_valid_group);
+                    Some(Memory::new(
+                        Uuid::new_v4(),
+                        user_id,
+                        content,
+                        Some(memory_prompt_id),
+                        None,
+                        grouping.as_deref()
+                    ))
+                }
                 "UPDATE" => {
                     let memory_id = match grouping_or_memory.and_then(|id| Uuid::parse_str(id).ok())
                     {
                         Some(id) => id,
-                        None => {
-                            info!("Invalid memory ID for UPDATE at idx {}", idx);
-                            return None;
-                        }
+                        None => return None,
                     };
 
                     info!("Memory ID to update: {}", memory_id);
@@ -853,10 +833,7 @@ async fn parse_ai_response(
                     let existing_memory = match existing_memories.iter().find(|m| m.id == memory_id)
                     {
                         Some(memory) => memory,
-                        None => {
-                            info!("Memory with id {} not found at idx {}", memory_id, idx);
-                            return None;
-                        }
+                        None => return None,
                     };
 
                     let message_content = format!(
@@ -896,24 +873,17 @@ async fn parse_ai_response(
                                 Some(memory_prompt_id),
                                 None,
                                 existing_memory.grouping.as_deref(),
-                                existing_memory.emoji.as_deref(),
                             )
                         }) {
                         Some(memory) => memory,
-                        None => {
-                            info!("Failed to extract updated memory content at idx {}", idx);
-                            return None;
-                        }
+                        None => return None,
                     };
 
                     info!("Updated memory: {:?}", updated_memory);
                     Some(updated_memory)
                 }
                 "REPEAT" => None,
-                _ => {
-                    info!("Invalid verdict type at idx {}: {}", idx, verdict_type);
-                    None
-                }
+                _ => None,
             }
         });
 

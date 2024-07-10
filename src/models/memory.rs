@@ -21,8 +21,7 @@ pub struct Memory {
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub memory_prompt_id: Option<Uuid>,
-    pub grouping: Option<String>,
-    pub emoji: Option<String>,
+    pub grouping: Option<String>
 }
 
 impl Default for Memory {
@@ -35,8 +34,7 @@ impl Default for Memory {
             updated_at: Utc::now(),
             deleted_at: None,
             memory_prompt_id: None,
-            grouping: None,
-            emoji: None,
+            grouping: None
         }
     }
 }
@@ -44,6 +42,29 @@ impl Default for Memory {
 lazy_static! {
     static ref USER_INFO_REGEX: Regex =
         Regex::new(r"(?s)<user information>(.*?)</user information>").unwrap();
+    static ref ALLOWED_GROUPS: Vec<String> = vec![
+        "Projects".to_string(),
+        "Learning".to_string(),
+        "Interests".to_string(),
+        "Work".to_string(),
+        "Tools".to_string(),
+        "Skills".to_string(),
+        "Personal".to_string(),
+        "Communication".to_string(),
+        "Health".to_string(),
+        "Relationships".to_string(),
+        "Goals".to_string(),
+        "Entertainment".to_string(),
+        "Travel".to_string(),
+        "Habits".to_string(),
+        "Achievements".to_string(),
+        "Preferences".to_string(),
+        "Schedule".to_string(),
+        "Shopping".to_string(),
+        "Hobbies".to_string(),
+        "Food".to_string(),
+    ];
+    static ref GENERIC_GROUP: String = "GENERIC".to_string();
 }
 
 impl Memory {
@@ -51,7 +72,6 @@ impl Memory {
         pool: &PgPool,
         memory: &str,
         grouping: Option<&str>,
-        emoji: Option<&str>,
         user_id: &str,
         prompt_id: Option<&Uuid>,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
@@ -65,21 +85,26 @@ impl Memory {
             memory,
             prompt_id,
             Some(now_utc),
-            grouping,
-            emoji,
+            grouping
         );
 
         let memory = query_as!(
             Memory,
-            "INSERT INTO memories (id, user_id, created_at, updated_at, content, memory_prompt_id, grouping, emoji) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+            r#"
+            INSERT INTO memories (
+                id, user_id, created_at, updated_at, 
+                content, memory_prompt_id, grouping
+            ) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7) 
+            RETURNING *
+            "#,
             new_memory.id,
             new_memory.user_id,
             new_memory.created_at,
             new_memory.updated_at,
             new_memory.content,
             new_memory.memory_prompt_id,
-            new_memory.grouping,
-            new_memory.emoji
+            new_memory.grouping
         )
         .fetch_one(pool)
         .await?;
@@ -109,7 +134,6 @@ impl Memory {
         memory_id: Uuid,
         new_memory: &str,
         grouping: Option<&str>,
-        emoji: Option<&str>,
         user_id: &str,
         memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
     ) -> Result<Self> {
@@ -132,7 +156,6 @@ impl Memory {
             content: new_memory.to_string(),
             updated_at: now_utc,
             grouping: grouping.map(|g| g.to_string()),
-            emoji: emoji.map(|e| e.to_string()),
             ..memory
         };
 
@@ -140,14 +163,13 @@ impl Memory {
             Memory,
             r#"
             UPDATE memories 
-            SET content = $1, updated_at = $2, grouping = $3, emoji = $4
-            WHERE id = $5 AND user_id = $6 AND deleted_at IS NULL
+            SET content = $1, updated_at = $2, grouping = $3
+            WHERE id = $4 AND user_id = $5 AND deleted_at IS NULL
             RETURNING *
             "#,
             updated_memory.content,
             updated_memory.updated_at,
             updated_memory.grouping,
-            updated_memory.emoji,
             updated_memory.id,
             updated_memory.user_id
         )
@@ -363,6 +385,20 @@ impl Memory {
             .collect::<Vec<_>>()
             .join("\n\n")
     }
+
+    pub fn formated_allowed_groups() -> String {
+        format!("[{}]", ALLOWED_GROUPS.join(", "))
+    }
+
+    pub fn get_valid_group(group: &str) -> String {
+        let lowercase_group = group.to_lowercase();
+        for allowed_group in ALLOWED_GROUPS.iter() {
+            if allowed_group.to_lowercase() == lowercase_group {
+                return allowed_group.clone();
+            }
+        }
+        GENERIC_GROUP.clone()
+    }
 }
 
 impl Memory {
@@ -373,7 +409,6 @@ impl Memory {
         prompt_id: Option<&Uuid>,
         created_at: Option<DateTime<Utc>>,
         grouping: Option<&str>,
-        emoji: Option<&str>,
     ) -> Self {
         Memory {
             id,
@@ -383,7 +418,6 @@ impl Memory {
             content: content.to_string(),
             memory_prompt_id: prompt_id.copied(),
             grouping: grouping.map(|g| g.to_string()),
-            emoji: emoji.map(|e| e.to_string()),
             ..Default::default()
         }
     }
