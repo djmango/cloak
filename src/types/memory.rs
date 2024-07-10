@@ -24,7 +24,7 @@ pub struct UpdateMemoryRequest {
 
 #[derive(Deserialize, ToSchema)]
 pub struct GenerateMemoriesRequest {
-    // pub user_id: String,
+    pub user_id: String,
     pub memory_prompt_id: Uuid,
     pub max_samples: Option<u32>,
     pub samples_per_query: Option<u32>,

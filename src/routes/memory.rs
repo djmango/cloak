@@ -252,7 +252,7 @@ async fn add_memory_prompt(
     }
 
     let memory_prompt =
-        MemoryPrompt::new(&app_state.pool, &req_body.prompt, req_body.example.clone())
+        MemoryPrompt::new(&app_state.pool, Some(Uuid::new_v4()), &req_body.prompt, req_body.example.clone())
             .await
             .map_err(|e| {
                 tracing::error!("Failed to add memory prompt: {:?}", e);
@@ -276,7 +276,7 @@ pub async fn generate_memories_from_chat_history_endpoint(
     }
 
     // let user_id = req_body.user_id.clone();
-    let user_id = authenticated_user.user_id.clone();
+    let user_id = req_body.user_id.clone();
     let memory_prompt_id = req_body.memory_prompt_id;
     let range = req_body.range.map(|(start, end)| {
         (
@@ -324,7 +324,7 @@ pub async fn generate_memories_from_chat_history(
         match latest_msg {
             Some(msg) if msg.created_at < Utc::now() - chrono::Duration::days(13) => {
                 return Err(anyhow::anyhow!(
-                    "Invalid User: User does not meet requirements for generating memory"
+                    "Invalid User: User has not sent a message in the last 13 days, which is required for memory generation"
                 ));
             }
             None => {
@@ -339,10 +339,10 @@ pub async fn generate_memories_from_chat_history(
     let mut user_messages =
         Message::get_messages_by_user_id(&app_state.pool, user_id, range).await?;
 
-    // skip users with no messages to generate memory for
+    // Skip users with no messages to generate memory for
     if user_messages.is_empty() {
         return Err(anyhow::anyhow!(
-            "Invalid User: User does not meet requirements for generating memory"
+            "Invalid User: No messages found for this user. At least one message is required to generate memories."
         ));
     }
 
@@ -491,12 +491,17 @@ async fn process_memory_context(
     samples: &[String],
     memory_prompt_id: &Uuid,
 ) -> Result<Vec<Memory>> {
-    let memory_prompt = MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to get memory prompt: {:?}", e);
-            e
-        })?;
+    let memory_prompt = match MemoryPrompt::get_by_id(&app_state.pool, memory_prompt_id).await {
+        Ok(prompt) => prompt,
+        Err(_) => {
+            // fallback to default generate memory prompt
+            let default_memory_id = Uuid::from_u128(0);
+            match MemoryPrompt::get_by_id(&app_state.pool, &default_memory_id).await {
+                Ok(prompt) => prompt,
+                Err(_) => MemoryPrompt::new(&app_state.pool, Some(default_memory_id), Prompts::GENERATE_MEMORY, None).await?
+            }
+        }
+    };
 
     let mut generated_memories: Vec<Memory> = Vec::new();
     // NOTE: using gpt-4o tokenizer since claude's is not open source
@@ -540,7 +545,7 @@ async fn process_memory_context(
                     memory_id,
                     user_id,
                     result_content.as_str(),
-                    Some(memory_prompt_id),
+                    Some(&memory_prompt.id),
                     Some(now_utc),
                     None
                 );
@@ -554,21 +559,24 @@ async fn process_memory_context(
 
     let formatted_memories: String = Memory::format_memories(generated_memories);
 
-    let message_content = format!(
-        "{}\n\n{}",
-        Prompts::FORMATTING_MEMORY,
-        serde_json::to_string(&formatted_memories).unwrap()
-    );
+    let format_memory_prompt = Prompts::FORMATTING_MEMORY
+        .replace("{0}", &Memory::formated_allowed_groups())
+        .replace("{1}", &serde_json::to_string(&formatted_memories).unwrap());
 
     let formatted_content = get_chat_completion(
         &app_state.keywords_client,
         "claude-3-5-sonnet-20240620",
-        &message_content,
+        &format_memory_prompt,
     )
     .await?;
 
     let formatted_memories =
-        process_formatted_memories(user_id, &formatted_content, memory_prompt_id).await?;
+        process_formatted_memories(user_id, &formatted_content, &memory_prompt.id).await?;
+
+    info!("formatted memories:");
+    for memory in &formatted_memories {
+        info!("ID: {}, Content: {}, Grouping: {:?}", memory.id, memory.content, memory.grouping);
+    }
 
     let existing_memories =
         Memory::get_all_memories(&app_state.pool, user_id, None, &app_state.memory_cache).await?;
@@ -576,7 +584,7 @@ async fn process_memory_context(
     increment_memory(
         app_state,
         user_id,
-        memory_prompt_id,
+        &memory_prompt.id,
         sem,
         &formatted_memories,
         &existing_memories,
@@ -820,14 +828,14 @@ async fn parse_ai_response(
 
             match verdict_type {
                 "NEW" | "OLD" => {
-                    let grouping = grouping_or_memory.map(Memory::get_valid_group);
+                    let grouping = Memory::get_valid_group(grouping_or_memory);
                     Some(Memory::new(
                         Uuid::new_v4(),
                         user_id,
                         content,
                         Some(memory_prompt_id),
                         None,
-                        grouping.as_deref()
+                        Some(&grouping)
                     ))
                 }
                 "UPDATE" => {

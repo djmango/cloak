@@ -263,10 +263,10 @@ After I add a new record, I need to refresh my screen to see the updated record.
     pub const AUTORENAME_4: &'static str = "React Page Updated Record";
     pub const AUTORENAME_5: &'static str = "how to spell propoganda";
     pub const AUTORENAME_6: &'static str = "Spelling of Propaganda";
-    pub const FORMATTING_MEMORY: &'static str = r###"You are given a large collection of descriptions of user preferences, behaviors, traits, etc. You will help a personal AI assist the user by parsing out any redundancies present in the description. You will group the user description into distinct categories, and output each category inside a <memory></memory> tag. 
+    pub const FORMATTING_MEMORY: &'static str = r###"You are given a large collection of descriptions of user preferences, behaviors, traits, etc. You will help a personal AI assist the user by parsing out any redundancies present in the description. You will group the user description into one of the given grouping categories, and output each grouping inside a <memory></memory> tag. 
 
-    Stylistic Rules:
-    - The category names will be read by human users as well. Therefore, category names should be friendly, human-readable (max 2 words), and simple. 
+    Formatting Rules:
+    - the given grouping categories must be one of the following: {0}
     
     You may find the example input and output below helpful.
     
@@ -330,7 +330,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     
     <output>
     <memory>
-    Expertise
+    Skills
     - Advanced Rust programmer, experienced in web development and AI systems
     - Proficient in Swift and SwiftUI, specializing in macOS and iOS development
     - Knowledgeable in git and software development processes
@@ -357,7 +357,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </memory>
     
     <memory>
-    Communication Style
+    Communication
     - Prefers brief, concise responses and may not engage in lengthy conversations
     - Communicates casually and directly, often using abbreviated language
     - Frequently inputs random strings of characters or short, meaningless messages
@@ -367,7 +367,7 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </memory>
     
     <memory>
-    Learning Preferences
+    Learning
     - Values detailed, technical explanations and robust error handling in code
     - Prefers structured, step-by-step explanations for debugging or information
     - Detail-oriented and seeks rigorous, well-thought-out solutions
@@ -375,13 +375,16 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </memory>
     
     <memory>
-    Specific Challenges
+    Events
     - Encountering errors related to the format of image data in AI model projects
     - Facing compilation errors due to type mismatches and missing fields after adding new fields to Rust structs
     - Seeking advice on specific UI/UX implementation challenges in SwiftUI
     </memory>
     </output> 
-    
+
+    <input>
+    {1}
+    </input>
     "###;
 
     pub const INCREMENT_MEMORY: &'static str = r###"<example>
@@ -540,5 +543,38 @@ After I add a new record, I need to refresh my screen to see the updated record.
     Prefers detailed step-by-step instructions and explanations for problem-solving, troubleshooting and debugging.
     </updated memory> 
     </example output>
+    "###;
+    
+    pub const GENERATE_MEMORY: &'static str = r###"<instructions>
+    You’re an assistant AI that helps a personal AI learn about their user. The personal AI’s job is to tailor their responses to fit the preferences of the user. These preferences often include but are not limited to the length, tone, structure, and formatting of response. As an assistant AI, your task is to extract information about the user from their chat messages above located in <chat_messages></chat_messages> tags. Your goal is to identify “user information,” which are unique traits about their personality and preferences. You will then communicate this information to the personal AI so it can be maximally helpful to the user. 
+
+    Pay special attention to the following:
+    - Shared personal information
+    - Any areas of interest or expertise
+    - Repeated behaviours and requests
+    - Patterns in communication style
+
+    Follow these steps to when extracting information:
+    1. Think step by step on which user information to choose, and why they might be useful for Personal AI. Justify each of your choices - in the end, your choice of information must maximally benefit the user because it allows the Personal AI to do an outstanding job. Do your thinking in <reasoning></reasoning> tags.
+    2. Parse each individual chat in the provided messages to identify user information. Place user information inside <user information></user information> tags, in bullet point form.
+    3. For each user information bullet point, cite the chats that you used to generate that insight. Place this between <citation></citation> tags. There should be as many citation bullet points as use information bullet points.
+    4. You may only place 3 pieces of user information inside the <user information> tags. Choose user information wisely so they convey maximum information about the user’s personal preferences to the personal AI. 
+    </instructions>
+
+    <example output format>
+    <reasoning>
+    … step-by-step reasoning on which user information to choose and why. 
+    </reasoning>
+    <user information>
+    User info 1
+    User info 2 
+    User info 3 
+    </user information>
+    <citation>
+    Citation 1
+    Citation 2
+    Citation 2
+    </citation>
+    </example output format> 
     "###;
 }

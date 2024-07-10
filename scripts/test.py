@@ -96,7 +96,7 @@ def count_memory_tokens(memories):
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
     return total_tokens
 
-def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=1):
+def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=3):
     now = datetime.utcnow()
     # Ensure logs directory exists
     log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')

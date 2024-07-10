@@ -63,6 +63,7 @@ lazy_static! {
         "Shopping".to_string(),
         "Hobbies".to_string(),
         "Food".to_string(),
+        "Events".to_string()
     ];
     static ref GENERIC_GROUP: String = "GENERIC".to_string();
 }
@@ -390,14 +391,19 @@ impl Memory {
         format!("[{}]", ALLOWED_GROUPS.join(", "))
     }
 
-    pub fn get_valid_group(group: &str) -> String {
-        let lowercase_group = group.to_lowercase();
-        for allowed_group in ALLOWED_GROUPS.iter() {
-            if allowed_group.to_lowercase() == lowercase_group {
-                return allowed_group.clone();
-            }
+    pub fn get_valid_group(group: Option<&str>) -> String {
+        match group {
+            Some(g) => {
+                let lowercase_group = g.to_lowercase();
+                for allowed_group in ALLOWED_GROUPS.iter() {
+                    if allowed_group.to_lowercase() == lowercase_group {
+                        return allowed_group.clone();
+                    }
+                }
+                GENERIC_GROUP.clone()
+            },
+            None => GENERIC_GROUP.clone(),
         }
-        GENERIC_GROUP.clone()
     }
 }
 
