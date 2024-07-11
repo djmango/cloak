@@ -166,6 +166,10 @@ async fn main(
                         .service(routes::memory::update_memory)
                         .service(routes::memory::delete_memory),
                 )
+                .service(
+                    web::scope("/recordings")
+                        .service(routes::recordings::save_recording),
+                )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
                 .service(Scalar::with_url("/scalar", openapi))
