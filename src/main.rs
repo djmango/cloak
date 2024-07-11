@@ -104,6 +104,7 @@ async fn main(
     // scheduler.start().await.unwrap();
 
     // Test version (executes immediately)
+    /*
     let app_state_clone: Arc<AppState> = app_state.clone();
     let timeout = Duration::from_secs(3 * 60 * 60); // 3 hours
     let begin_time = Utc::now() - chrono::Duration::days(365 * 10); // 10 years ago
@@ -113,7 +114,7 @@ async fn main(
             Err(_) => error!("Test job timed out after 3 hours"),
         }
     });
-
+*/
     let openapi = ApiDoc::openapi();
 
     let config = move |cfg: &mut web::ServiceConfig| {

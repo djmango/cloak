@@ -52,7 +52,7 @@ def add_memory(base_url, prompt, id=None):
         return None
 
 # Modify this function to include the JWT token
-def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=1000, samples_per_query=30, range=None):
+def generate_from_chat(base_url, user_id, max_samples=1000, samples_per_query=30, range=None):
     endpoint = f"{base_url}/memories/generate_from_chat"
     # Get JWT token
     token = get_jwt_token()
@@ -62,10 +62,6 @@ def generate_from_chat(base_url, user_id, memory_prompt_id=None, max_samples=100
     payload = {
         "user_id": user_id
     }
-    if memory_prompt_id:
-        payload["memory_prompt_id"] = str(memory_prompt_id)
-    else:
-        payload["memory_prompt_id"] = str(uuid.uuid4())
     
     if max_samples is not None:
         payload["max_samples"] = max_samples
@@ -96,7 +92,7 @@ def count_memory_tokens(memories):
     total_tokens = sum(len(enc.encode(memory["content"])) for memory in memories)
     return total_tokens
 
-def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=3):
+def test_memory_increment(base_url, user_id, days_back=3):
     now = datetime.utcnow()
     # Ensure logs directory exists
     log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')
@@ -105,8 +101,8 @@ def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=3):
     # Test case 1: Generate from beginning of time to 'days_back' days ago
     start_date = datetime.min  # Beginning of time
     end_date = now - timedelta(days=days_back)
-    range_payload = [int((now - timedelta(days=10)).timestamp()), int(end_date.timestamp())]
-    response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
+    range_payload = [int((now - timedelta(days=30)).timestamp()), int(end_date.timestamp())]
+    response = generate_from_chat(base_url, user_id, range=range_payload)
     print(f"Test case 1: {start_date} to {end_date} - {'Success' if response else 'Fail'}")
     log_response(f"beginning_to_{days_back}_days_ago", response, log_dir)
     
@@ -115,25 +111,23 @@ def test_memory_increment(base_url, user_id, memory_prompt_id, days_back=3):
         start_date = now - timedelta(days=days_back-i)
         end_date = now - timedelta(days=days_back-1-i)
         range_payload = [int(start_date.timestamp()), int(end_date.timestamp())]
-        response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
+        response = generate_from_chat(base_url, user_id, range=range_payload)
         print(f"Test case {i+2}: {start_date} to {end_date} - {'Success' if response else 'Fail'}")
         log_response(f"range_{days_back-i}_{days_back-1-i}_days_ago", response, log_dir)
     
     # Test case days_back+2: Generate for yesterday to now
     yesterday = now - timedelta(days=1)
     range_payload = [int(yesterday.timestamp()), int(now.timestamp())]
-    response = generate_from_chat(base_url, user_id, memory_prompt_id, range=range_payload)
+    response = generate_from_chat(base_url, user_id, range=range_payload)
     print(f"Test case {days_back+2}: {yesterday} to {now} - {'Success' if response else 'Fail'}")
     log_response("range_yesterday_to_now", response, log_dir)
     
     print("All test cases completed.")
 
-def get_all(base_url, user_id, memory_prompt_id=None, format=False):
+def get_all(base_url, user_id, format=False):
     endpoint = f"{base_url}/memories/get_all"
     token = get_jwt_token()
     params = {"user_id": user_id}  # Add user_id to the params
-    if memory_prompt_id:
-        params["memory_prompt_id"] = str(memory_prompt_id)
     if format:
         params["format"] = "true"
     
@@ -176,61 +170,10 @@ def log_response(test_case, response, log_dir):
 
 if __name__ == '__main__':
     base_url = "http://localhost:8000"
-    user_ids = ['user_01HRBJ8FVP3JT28DEWXN6JPKF5', 'user_01HY5EW9Z5XVE34GZXKH4NC2Y1']
-    memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
+    user_ids = ['user_01HY5EW9Z5XVE34GZXKH4NC2Y1']
     for user_id in user_ids:
-        delete_all_memories(base_url, user_id)
-        test_memory_increment(base_url, user_id, memory_prompt_id)
+        #delete_all_memories(base_url, user_id)
+        test_memory_increment(base_url, user_id)
         print(f'getting mem for {user_id}')
         final_mem = get_all(base_url, user_id, format=True)
         print(final_mem)
-    exit(-1)
-
-    cwd = os.path.dirname(os.path.realpath(__file__))
-    print(cwd)
-    base_url = "http://localhost:8000"
-                
-    user_ids = ["user_01HRBJ8FVP3JT28DEWXN6JPKF5", # sully                                                    
-                "user_01HY5EW9Z5XVE34GZXKH4NC2Y1", # minjune
-                "user_01HZEP4TFR49AG913DPQJ6MASW",# some russian guy
-                # https://us.posthog.com/project/59909/insights/K3EgabUz
-                "user_01HZEP4TFR49AG913DPQJ6MASW", #1326 msgs https://us.posthog.com/project/59909/person/larinvasyl%40pm.me
-                "user_01HVR20FDCZH3QX8WPYHR45MX7", #479 msgs https://us.posthog.com/project/59909/person/siuchun038%40gmail.com
-                "user_01J13W84Z1TDYH5BEW4288KZQX", #385 msgs https://us.posthog.com/project/59909/person/4A6AAC56-382C-4BA1-8D99-19ECC76553BE
-                "user_01J0JKNKX3FPMZ9JJ9NVG8D12A", # 291 msgs https://us.posthog.com/project/59909/person/alex.zorychta%40gmail.com
-                "user_01J15P3MRBT039MTC0KWGD114R", # 240 msgs https://us.posthog.com/project/59909/person/ai%40hmphu.com
-                "user_01J03D570TSXTNZ3FJGZFZ8VHA", # 208 msgs https://us.posthog.com/project/59909/person/F8037A10-280A-4ABA-9BB4-A4180E790BD3
-                ] 
-
-    user_ids = [user_ids[1]]
-    memory_prompt_id = 'b66ebb74-09c2-4c67-bf99-52c05e7dbe44'
-    for p in os.listdir(os.path.join(cwd, 'prompts')):
-        pf = os.path.join(cwd, 'prompts', p)
-        with open(pf, 'r') as f:
-            prompt = f.read()
-            #add_memory(base_url, prompt)
-
-    delete_all_memories(base_url, user_ids[0])
-    max_samples = 1000
-    samples_per_query = 50
-    # Use ThreadPoolExecutor to run generate_from_chat concurrently
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(generate_from_chat, base_url, user_id, memory_prompt_id, max_samples, samples_per_query) for user_id in user_ids]
-        
-        for future in as_completed(futures):
-            try:
-                response = future.result()
-                if response:
-                    memories = response.json()
-                    total_tokens = count_memory_tokens(memories)
-                    print(f"Total tokens in generated memories: {total_tokens}")
-                    
-                    for memory in memories:
-                        log_file_path = os.path.join(cwd, 'logs', f'{memory_prompt_id}-{memory["user_id"]}.txt')
-                        if not os.path.exists(os.path.join(cwd, 'logs')):
-                            os.makedirs(os.path.join (cwd, 'logs'), exist_ok=True)
-                        with open(log_file_path, 'a') as log_file:
-                            log_file.write(f'{memory["id"]},{memory["content"]}, {memory["grouping"]}, {memory["emoji"]}\n')
-
-            except Exception as exc:
-                print(f'Generated an exception: {exc}')
