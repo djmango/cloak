@@ -23,7 +23,7 @@ impl AuthenticatedUser {
     pub fn is_admin(&self) -> bool {
         matches!(
             self.user_id.as_str(),
-            "user_01HRBJ8FVP3JT28DEWXN6JPKF5" |
+            "user_01HRBJ8FVP3JT28DEWXN6JPKF5" | // Sulaiman skghori
             "user_01HY5EW9Z5XVE34GZXKH4NC2Y1" |
             "user_01J12R88378H1Z5R3JCGEPJ6RA"
         )

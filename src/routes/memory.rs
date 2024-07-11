@@ -196,7 +196,6 @@ pub async fn generate_memories_from_chat_history_endpoint(
         ));
     }
 
-    // let user_id = req_body.user_id.clone();
     let user_id = req_body.user_id.clone();
     let range = req_body.range.map(|(start, end)| {
         (
@@ -291,7 +290,7 @@ pub async fn generate_memories_from_chat_history(
     let mut i = 0;
     let mut sample_tokens = 0;
     let mut working_tokens: Option<(Uuid, Vec<usize>)> = None;
-    
+
     info!(
         "Begin processing samples of max {} tokens",
         *max_sample_toks
@@ -325,7 +324,7 @@ pub async fn generate_memories_from_chat_history(
                     match &bpe {
                         Ok(tokenizer) => {
                             let tokens = tokenizer.encode_with_special_tokens(&msg.text);
-                            working_tokens = Some((msg.id.clone(), tokens.clone()));
+                            working_tokens = Some((msg.id, tokens.clone()));
                             tokens.len()
                         }
                         Err(_) => estimate_token_count(&msg.text),
@@ -335,7 +334,7 @@ pub async fn generate_memories_from_chat_history(
                 match &bpe {
                     Ok(tokenizer) => {
                         let tokens = tokenizer.encode_with_special_tokens(&msg.text);
-                        working_tokens = Some((msg.id.clone(), tokens.clone()));
+                        working_tokens = Some((msg.id, tokens.clone()));
                         tokens.len()
                     }
                     Err(_) => estimate_token_count(&msg.text),
@@ -386,7 +385,7 @@ pub async fn generate_memories_from_chat_history(
                                 .to_vec()
                         });
                     let remaining_len = remaining_tokens.len();
-                    working_tokens = Some((msg.id.clone(), remaining_tokens.clone()));
+                    working_tokens = Some((msg.id, remaining_tokens.clone()));
                     tokenizer
                         .decode(remaining_tokens)
                         .context("Failed to decode remaining message")
