@@ -1,9 +1,6 @@
 use crate::models::file::{File, Filetype};
 use anyhow::Result;
-use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestUserMessageContent, InvisibilityMetadata,
-};
+use async_openai::types::InvisibilityMetadata;
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
@@ -106,49 +103,18 @@ impl Message {
 
     /// Create a new message from an OpenAI API request and saves to DB, either a user or assistant message.
     /// All other types are unsupported.
+    #[allow(clippy::too_many_arguments)]
     pub async fn from_oai(
         pool: &PgPool,
-        oai_message: ChatCompletionRequestMessage,
+        content: String,
+        role: Role,
+        files: Vec<String>,
         chat_id: Uuid,
         user_id: &str,
         model_id: Option<String>,
         invisibility_metadata: Option<InvisibilityMetadata>,
         created_at: Option<DateTime<Utc>>,
     ) -> Result<Self> {
-        // Determine the message content and role, and always ensure at least a blank string unless
-        // its an unhandled message type
-        let (content, role, files) = match oai_message {
-            ChatCompletionRequestMessage::User(user_message) => match user_message.content {
-                ChatCompletionRequestUserMessageContent::Text(text) => (text, Role::User, vec![]),
-                ChatCompletionRequestUserMessageContent::Array(array) => {
-                    let mut concatenated_text = String::new();
-                    let mut file_urls = Vec::new();
-
-                    for part in &array {
-                        match part {
-                            ChatCompletionRequestMessageContentPart::Text(text_part) => {
-                                if !text_part.text.trim().is_empty() {
-                                    concatenated_text.push_str(&text_part.text);
-                                }
-                            }
-                            ChatCompletionRequestMessageContentPart::ImageUrl(image_part) => {
-                                file_urls.push(image_part.image_url.url.clone());
-                            }
-                        }
-                    }
-                    (concatenated_text, Role::User, file_urls)
-                }
-            },
-            ChatCompletionRequestMessage::Assistant(assistant_message) => {
-                if let Some(content) = &assistant_message.content {
-                    (content.clone(), Role::Assistant, vec![])
-                } else {
-                    ("".to_string(), Role::Assistant, vec![])
-                }
-            }
-            _ => return Err(anyhow::anyhow!("Unsupported message type")),
-        };
-
         let message = Message {
             id: invisibility_metadata
                 .as_ref()

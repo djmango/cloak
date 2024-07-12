@@ -290,7 +290,7 @@ pub async fn generate_memories_from_chat_history(
     let mut i = 0;
     let mut sample_tokens = 0;
     let mut working_tokens: Option<(Uuid, Vec<usize>)> = None;
-
+    
     info!(
         "Begin processing samples of max {} tokens",
         *max_sample_toks
@@ -667,6 +667,7 @@ lazy_static! {
     static ref VERDICT_REGEX: Regex = Regex::new(r"Verdict:\s*(.+)").unwrap();
     static ref UPDATED_MEMORY_REGEX: Regex =
         Regex::new(r"(?s)<updated memory>(.*?)</updated memory>").unwrap();
+    static ref CLASSIFY_MESSAGE_REGEX: Regex = Regex::new(r"(?is)<classification>\s*(.*?)\s*</classification>").unwrap();
 }
 
 async fn parse_ai_response(
@@ -789,6 +790,34 @@ async fn parse_ai_response(
 
     let results = futures::future::join_all(futures).await;
     Ok(results.into_iter().flatten().collect())
+}
+
+pub async fn use_message_for_memory(
+    app_state: &web::Data<Arc<AppState>>,
+    message_content: &str,
+) -> Result<bool, Error> {
+    let classify_prompt = Prompts::CLASSIFY_INSTRUCTION.replace("{0}", message_content);
+    info!("classify_prompt:\n{}", classify_prompt);
+    match get_chat_completion(&app_state.keywords_client, "groq/llama3-70b-8192", &classify_prompt).await {
+        Ok(res) => {
+            info!("AI output:\n{}", res);
+            let captures = CLASSIFY_MESSAGE_REGEX.captures(&res);
+            info!("Regex captures: {:?}", captures);
+            let result = captures
+                .and_then(|cap| cap.get(1))
+                .map_or(false, |m| {
+                    let matched = m.as_str().trim().to_uppercase();
+                    info!("Matched text: '{}', Uppercase: '{}'", m.as_str().trim(), matched);
+                    matched == "REMEMBER"
+                });
+            info!("Classification result: {}", result);
+            Ok(result)
+        }
+        Err(e) => {
+            error!("Failed to classify message: {}", e);
+            Err(e)
+        }
+    }
 }
 // Add this utility function at the top of the file, after imports
 async fn get_chat_completion(

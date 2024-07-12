@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use utoipa::OpenApi;
+use chrono::Utc;
 
 // use crate::routes::memory::get_all_user_memories;
 use crate::config::AppConfig;
@@ -25,6 +26,7 @@ use crate::middleware::auth::AuthenticatedUser;
 use crate::models::message::Role;
 use crate::models::{Chat, Memory, Message};
 use crate::{prompts::Prompts, AppState};
+use crate::routes;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -361,9 +363,47 @@ async fn chat(
 
                         // Insert into db a message, the last OAI message (prompt). This should always be a user message
                         if let Some(last_oai_message) = last_message_option {
+
+                            let (content, role, files) = match last_oai_message {
+                                ChatCompletionRequestMessage::User(user_message) => match user_message.content {
+                                    ChatCompletionRequestUserMessageContent::Text(text) => (text, Role::User, vec![]),
+                                    ChatCompletionRequestUserMessageContent::Array(array) => {
+                                        let mut concatenated_text = String::new();
+                                        let mut file_urls = Vec::new();
+                    
+                                        for part in &array {
+                                            match part {
+                                                ChatCompletionRequestMessageContentPart::Text(text_part) => {
+                                                    if !text_part.text.trim().is_empty() {
+                                                        concatenated_text.push_str(&text_part.text);
+                                                    }
+                                                }
+                                                ChatCompletionRequestMessageContentPart::ImageUrl(image_part) => {
+                                                    file_urls.push(image_part.image_url.url.clone());
+                                                }
+                                            }
+                                        }
+                                        (concatenated_text, Role::User, file_urls)
+                                    }
+                                },
+                                ChatCompletionRequestMessage::Assistant(assistant_message) => {
+                                    if let Some(content) = &assistant_message.content {
+                                        (content.clone(), Role::Assistant, vec![])
+                                    } else {
+                                        ("".to_string(), Role::Assistant, vec![])
+                                    }
+                                },
+                                _ => {
+                                    error!("Unsupported message type");
+                                    return;
+                                }
+                            };
+
                             match Message::from_oai(
                                 &app_state.pool,
-                                last_oai_message.clone(),
+                                content.clone(),
+                                role.clone(),
+                                files.clone(),
                                 chat.id,
                                 &user_id.clone(),
                                 Some(model_id.clone()),
@@ -379,6 +419,27 @@ async fn chat(
                                     error!("Error creating message from OAI message: {:?}", e);
                                 }
                             };
+                                                        
+                            if role == Role::User && routes::memory::use_message_for_memory(&app_state, &content).await.unwrap_or(false) {
+                                let last_msg_range = (start_time, Utc::now());
+                                match routes::memory::generate_memories_from_chat_history(
+                                    &app_state, 
+                                    None, 
+                                    &user_id, 
+                                    Some(1), 
+                                    Some(1), 
+                                    Some(last_msg_range)
+                                )
+                                .await
+                                {
+                                    Ok(memories) => {
+                                        info!("Real-time memories generated successfully for user: {}. Count: {}", user_id, memories.len());
+                                    },
+                                    Err(e) => {
+                                        error!("Error generating memories for user {}: {:?}", user_id, e);
+                                    }
+                                }
+                            }
                         } else {
                             error!("No messages found in request_args.messages");
                         }

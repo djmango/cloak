@@ -7,6 +7,10 @@ Secrets.toml
 logs/
 scripts/prompts/
 
+# Ignore Python bytecode files
+*.pyc
+__pycache__/
+
 ## TERRAFORM
 # Created by https://www.toptal.com/developers/gitignore/api/terraform
 # Edit at https://www.toptal.com/developers/gitignore?templates=terraform

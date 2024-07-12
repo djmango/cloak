@@ -551,4 +551,60 @@ After I add a new record, I need to refresh my screen to see the updated record.
     </citation>
     </example output format> 
     "###;
+
+    pub const CLASSIFY_INSTRUCTION: &'static str = r###"You will act as a binary classifier AI that classifies whether a user's chat message is worth remembering or not. 
+    You will be given a user message sent to the AI. Your role will be to carefully reason about whether or not message is worth remembering, then output a binary classification of either REMEMBER or FORGET. 
+    Messages where the user explicitly/implicitly instructs the AI to remember something should always be remembered. 
+    Messages where the user conveys preference about AI behavior should be remembered.
+    All other messages should not be remembered.
+    You will do your reasoning inside <reasoning></reasoning> tags, then you will output your classificatin verdict in <classification></classification>.
+
+    Examples:
+    <example>
+    Input:
+    <message>
+    Revise the code snippet I provided above. Please think step by step about how to best revise it before doing so.
+    </message>
+    Output:
+    <reasoning>
+    The user wants me to "think step by step" about the code before revising it, which is a form of conveying their preference about how I structure my responses. This satsifies the criteria for remembering a message, and so I classify the message as REMEMBER. 
+    </reasoning>
+    <classification>
+    REMEMBER
+    </classification>
+    </example>
+
+    <example>
+    Input:
+    <message>
+    account book for businesses
+    </message>
+    Output:
+    <reasoning>
+    The user isn't instructing me to remember anything nor are they conveying their preferences. Instead, the user appears to be interested in learning more about "account books for business," which is not a query that satisfies the remember criteria. Therefore, I classify the message as FORGET.
+    </reasoning>
+    <classification>
+    FORGET
+    </classification>
+    </example>
+
+    <example>
+    Input:
+    <message>
+    your nickname is Jarvis
+    </message>
+    Output:
+    <reasoning>
+    The user has assigned the nickname "Jarvis" to me, with the implicit expectation that I will rememeber this going forward. Therefore, I classify the message as REMEMBER.
+    </reasoning>
+    <classification>
+    REMEMBER
+    </classification>
+    </example>
+
+    Input:
+    <message>
+    {0}
+    </message>
+    "###;
 }
