@@ -28,6 +28,17 @@ impl AuthenticatedUser {
             "user_01J12R88378H1Z5R3JCGEPJ6RA"
         )
     }
+
+    pub fn is_rate_limited(&self) -> bool {
+        matches!(
+            self.user_id.as_str(),
+            "user_01J21MH9Q2ZJZC1C8R4ZHFJBNB" | // Hamzeh Hammad
+            "user_01J04BC3DXJ7PVGAW7VS30DG91" | // Vasyl Larin
+            "user_01HTYMBHYK14M12HHK34A2R8RC" | // Dmitriy Osipov
+            "user_01HYNY2S52Q5CQ6NWPP9D8D4AA" | // Francesco Simone Mensa
+            "user_01HX6WMNT229K6V7CFPD7VRNV8"   // Sergi C
+        )
+    }
 }
 // This is the trait that actix-web uses to extract the `AuthenticatedUser` from the request
 // This is how we can use `AuthenticatedUser` as a parameter in our route handlers
