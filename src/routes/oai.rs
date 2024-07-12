@@ -14,14 +14,11 @@ use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
 use serde_json::to_string;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use utoipa::OpenApi;
 use chrono::Utc;
 
-// use crate::routes::memory::get_all_user_memories;
-use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::message::Role;
 use crate::models::{Chat, Memory, Message};
@@ -83,7 +80,6 @@ async fn create_system_prompt(
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
-    app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
@@ -205,27 +201,6 @@ async fn chat(
             }
             _ => {}
         }
-    }
-
-    // If using bedrock add the customer credentials
-    if request_args.model.starts_with("bedrock/") {
-        request_args.customer_credentials = Some(HashMap::from_iter(vec![(
-            "bedrock".to_string(),
-            serde_json::Value::Object(serde_json::Map::from_iter(vec![
-                (
-                    "aws_access_key_id".to_string(),
-                    serde_json::Value::String(app_config.aws_access_key_id.clone()),
-                ),
-                (
-                    "aws_secret_access_key".to_string(),
-                    serde_json::Value::String(app_config.aws_secret_access_key.clone()),
-                ),
-                (
-                    "aws_region_name".to_string(),
-                    serde_json::Value::String(app_config.aws_region.clone()),
-                ),
-            ])),
-        )]));
     }
 
     // Get the last message from the request
