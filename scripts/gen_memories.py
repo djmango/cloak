@@ -1,11 +1,15 @@
 import requests
-import uuid
+import asyncio
 import os
 import json
 import tiktoken
+import asyncpg
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def get_jwt_token():
     # put ur jwt here
@@ -162,18 +166,70 @@ def log_response(test_case, response, log_dir):
             for memory in memories:
                 log_file.write(f'{memory["content"]},{memory["grouping"]}\n')
 
-# on avg adding 10 memories per day
-# begin ~30 memories
-# over month, 300 memories
-# over year, 3600 memories
-# this is why long term mem is needed
 
+async def get_all_users():
+    load_dotenv()
+    database_url = os.getenv('DATABASE_URL')
+    
+    if not database_url:
+        raise ValueError("DATABASE_URL not found in .env file")
+
+    async with asyncpg.create_pool(database_url) as pool:
+        async with pool.acquire() as conn:
+            query = "SELECT id, first_name, last_name, email, created_at, updated_at FROM users"
+            rows = await conn.fetch(query)
+            
+            users = [
+                {
+                    'id': row['id'],
+                    'first_name': row['first_name'],
+                    'last_name': row['last_name'],
+                    'email': row['email'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at']
+                }
+                for row in rows
+            ]
+            
+            return users
+        
 if __name__ == '__main__':
+    # TODO replace base_url with cloak.i.inc
     base_url = "http://localhost:8000"
-    user_ids = ['user_01HY5EW9Z5XVE34GZXKH4NC2Y1']
-    for user_id in user_ids:
-        #delete_all_memories(base_url, user_id)
-        test_memory_increment(base_url, user_id)
-        print(f'getting mem for {user_id}')
+    batch_size = 500
+    max_workers = 10  # Adjust this based on your system's capabilities
+
+    # Run the asynchronous function to get all users
+    users = asyncio.run(get_all_users())
+    user_ids = [user['id'] for user in users]
+    print(f"Found {len(user_ids)} users")
+
+    def process_user(user_id):
+        delete_all_memories(base_url, user_id)
+        start_date = datetime.min
+        range_payload = [int(start_date.timestamp()), int(datetime.utcnow().timestamp())]
+        response = generate_from_chat(base_url, user_id, range=range_payload)
+        print(f'Getting mem for {user_id}')
         final_mem = get_all(base_url, user_id, format=True)
-        print(final_mem)
+        return final_mem
+
+    # Process users in batches
+    for i in range(0, len(user_ids), batch_size):
+        batch = user_ids[i:i+batch_size]
+        print(f"Processing batch {i//batch_size + 1} ({len(batch)} users)")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(process_user, user_id) for user_id in batch]
+            
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    # You can process or store the result here if needed
+                except Exception as e:
+                    print(f"An error occurred: {e}")
+
+        print(f"Finished processing batch {i//batch_size + 1}")
+
+    print("All batches processed")
+
+    

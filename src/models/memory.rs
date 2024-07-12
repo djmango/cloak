@@ -185,42 +185,6 @@ impl Memory {
         Ok(memory)
     }
 
-    pub async fn delete_all_memories(
-        pool: &PgPool,
-        user_id: &str,
-        memory_cache: &Cache<String, HashMap<Uuid, Memory>>,
-    ) -> Result<Vec<Uuid>> {
-        let deleted_memories = sqlx::query!(
-            "UPDATE memories 
-            SET deleted_at = $1
-            WHERE user_id = $2 AND deleted_at IS NULL
-            RETURNING id",
-            Utc::now(),
-            user_id
-        )
-        .fetch_all(pool)
-        .await?;
-
-        let deleted_ids: Vec<Uuid> = deleted_memories.into_iter().map(|row| row.id).collect();
-
-        if let Some(mut user_memories) = memory_cache.get(user_id).await {
-            for id in &deleted_ids {
-                user_memories.remove(id);
-            }
-            memory_cache
-                .insert(user_id.to_string(), user_memories)
-                .await;
-            info!("Removed {} deleted memories from cache", deleted_ids.len());
-        }
-
-        info!(
-            "All memories soft-deleted for user: {}. Affected rows: {}",
-            user_id,
-            deleted_ids.len()
-        );
-        Ok(deleted_ids)
-    }
-
     pub async fn delete_memory(
         pool: &PgPool,
         memory_id: Uuid,
