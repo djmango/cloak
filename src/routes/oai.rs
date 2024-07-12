@@ -19,6 +19,7 @@ use tracing::{debug, error, info};
 use utoipa::OpenApi;
 use chrono::Utc;
 
+use crate::config::AppConfig;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::message::Role;
 use crate::models::{Chat, Memory, Message};
@@ -80,6 +81,7 @@ async fn create_system_prompt(
 #[post("/v1/chat/completions")]
 async fn chat(
     app_state: web::Data<Arc<AppState>>,
+    app_config: web::Data<Arc<AppConfig>>,
     authenticated_user: AuthenticatedUser,
     req_body: web::Json<CreateChatCompletionRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
@@ -88,6 +90,8 @@ async fn chat(
         "User {} hit the AI endpoint with model: {}",
         &authenticated_user.user_id, req_body.model
     );
+
+    get_user_usage_data(app_config, &authenticated_user.user_id).await?;
 
     let mut request_args = req_body.into_inner();
 
@@ -445,4 +449,42 @@ async fn chat(
         .streaming(stream);
 
     Ok(response)
+}
+
+async fn get_user_usage_data(
+    app_config: web::Data<Arc<AppConfig>>,
+    user_id: &str,
+) -> Result<String, actix_web::Error> {
+    let keywords_api_key = app_config.keywords_api_key.clone();
+
+    let client = reqwest::Client::new();
+    let url = format!("https://api.keywordsai.co/api/user/detail/{}", user_id);
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", keywords_api_key))
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Failed to send request: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    if response.status().is_success() {
+        let usage_data = response.text().await.map_err(|e| {
+            error!("Failed to read response text: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+        info!("User usage data: {:?}", usage_data);
+        // Ok(usage_data)
+    } else {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        error!("Request failed with status {}: {}", status, error_text);
+
+        // Err(actix_web::error::ErrorInternalServerError(format!("Failed to fetch user usage data: {}", error_text)))
+    }
+
+    Ok(String::new())
 }
