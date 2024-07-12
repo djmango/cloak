@@ -1,9 +1,6 @@
 use crate::models::file::{File, Filetype};
 use anyhow::Result;
-use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-    ChatCompletionRequestUserMessageContent, InvisibilityMetadata,
-};
+use async_openai::types::InvisibilityMetadata;
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
@@ -106,6 +103,7 @@ impl Message {
 
     /// Create a new message from an OpenAI API request and saves to DB, either a user or assistant message.
     /// All other types are unsupported.
+    #[allow(clippy::too_many_arguments)]
     pub async fn from_oai(
         pool: &PgPool,
         content: String,
@@ -117,7 +115,6 @@ impl Message {
         invisibility_metadata: Option<InvisibilityMetadata>,
         created_at: Option<DateTime<Utc>>,
     ) -> Result<Self> {
-     
         let message = Message {
             id: invisibility_metadata
                 .as_ref()

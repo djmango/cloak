@@ -420,28 +420,26 @@ async fn chat(
                                 }
                             };
                                                         
-                            if role == Role::User {
-                                if routes::memory::use_message_for_memory(&app_state, &content).await.unwrap_or(false) {
-                                    let last_msg_range = (start_time, Utc::now());
-                                    match routes::memory::generate_memories_from_chat_history(
-                                        &app_state, 
-                                        None, 
-                                        &user_id, 
-                                        Some(1), 
-                                        Some(1), 
-                                        Some(last_msg_range)
-                                    )
-                                    .await
-                                    {
-                                        Ok(memories) => {
-                                            info!("Real-time memories generated successfully for user: {}. Count: {}", user_id, memories.len());
-                                        },
-                                        Err(e) => {
-                                            error!("Error generating memories for user {}: {:?}", user_id, e);
-                                        }
+                            if role == Role::User && routes::memory::use_message_for_memory(&app_state, &content).await.unwrap_or(false) {
+                                let last_msg_range = (start_time, Utc::now());
+                                match routes::memory::generate_memories_from_chat_history(
+                                    &app_state, 
+                                    None, 
+                                    &user_id, 
+                                    Some(1), 
+                                    Some(1), 
+                                    Some(last_msg_range)
+                                )
+                                .await
+                                {
+                                    Ok(memories) => {
+                                        info!("Real-time memories generated successfully for user: {}. Count: {}", user_id, memories.len());
+                                    },
+                                    Err(e) => {
+                                        error!("Error generating memories for user {}: {:?}", user_id, e);
                                     }
-                                } 
-                            } 
+                                }
+                            }
                         } else {
                             error!("No messages found in request_args.messages");
                         }
