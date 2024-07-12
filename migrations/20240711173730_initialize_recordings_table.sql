@@ -1,5 +1,3 @@
--- Add migration script here
--- Add migration script here
 CREATE TABLE recordings (
     id UUID PRIMARY KEY,
     session_id UUID NOT NULL,

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO recordings (id, session_id, s3_object_key, start_timestamp, created_at, updated_at) \n            VALUES ($1, $2, $3, $4, $5, $6)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamp",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93a0678ff3b81a190a0f28e61dba5a0a2dc6a62438fecaae66d483046f04f048"
+}

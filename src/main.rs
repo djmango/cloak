@@ -81,7 +81,7 @@ async fn main(
             .build(),
     });
 
-    // Production code (commented out)
+    // Run a job every day at midnight to generate memories for all users
     let scheduler = JobScheduler::new().await.unwrap();
     let app_state_clone: Arc<AppState> = app_state.clone();
     let yesterday: chrono::prelude::DateTime<Utc> = Utc::now() - chrono::Duration::days(1);
@@ -100,17 +100,6 @@ async fn main(
     .unwrap();
     scheduler.add(job).await.unwrap();
     scheduler.start().await.unwrap();
-
-    // Test version (executes immediately)
-    // let app_state_clone: Arc<AppState> = app_state.clone();
-    // let timeout = Duration::from_secs(3 * 60 * 60); // 3 hours
-    // let begin_time = Utc::now() - chrono::Duration::days(365 * 10); // 10 years ago
-    // tokio::spawn(async move {
-    //     match tokio::time::timeout(timeout, generate_all_users_memories(app_state_clone, begin_time)).await {
-    //         Ok(_) => info!("Test job completed successfully within the time limit"),
-    //         Err(_) => error!("Test job timed out after 3 hours"),
-    //     }
-    // });
 
     let openapi = ApiDoc::openapi();
 
@@ -164,10 +153,7 @@ async fn main(
                         .service(routes::memory::update_memory)
                         .service(routes::memory::delete_memory),
                 )
-                .service(
-                    web::scope("/recordings")
-                        .service(routes::recordings::save_recording),
-                )
+                .service(web::scope("/sidekick").service(routes::sidekick::fetch_save_url))
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
                 .service(Scalar::with_url("/scalar", openapi))
