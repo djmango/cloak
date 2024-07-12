@@ -127,17 +127,24 @@ async fn chat(
     // Max tokens as 4096
     request_args.max_tokens = Some(4096);
 
-    // Conform the model id to what's expected by the provider
-    request_args.model = match request_args.model.as_str() {
-        "perplexity/mixtral-8x7b-instruct" => {
-            "openrouter/mistralai/mixtral-8x7b-instruct".to_string()
-        }
-        "perplexity/sonar-medium-online" => {
-            "openrouter/perplexity/llama-3-sonar-large-32k-online".to_string()
-        }
-        "openrouter/google/gemini-pro-1.5" => "gemini-1.5-flash-001".to_string(),
-        _ => request_args.model,
-    };
+    // Check if user is rate limited
+    if authenticated_user.is_rate_limited() {
+        request_args.model = "groq/llama3-70b-8192".to_string();
+    } else {
+        // Conform the model id to what's expected by the provider
+        request_args.model = match request_args.model.as_str() {
+            "perplexity/mixtral-8x7b-instruct" => {
+                "openrouter/mistralai/mixtral-8x7b-instruct".to_string()
+            }
+            "perplexity/sonar-medium-online" => {
+                "openrouter/perplexity/llama-3-sonar-large-32k-online".to_string()
+            }
+            "openrouter/google/gemini-pro-1.5" => "gemini-1.5-flash-001".to_string(),
+            _ => request_args.model,
+        };
+    }
+
+    info!("Model set to: {}", request_args.model);
 
     // Set fallback models
     request_args.fallback = Some(vec![
