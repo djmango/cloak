@@ -5,3 +5,7 @@
 Secrets.toml
 logs/
 scripts/prompts/
+# Ignore Python bytecode files
+*.pyc
+__pycache__/
+
