@@ -1,10 +1,10 @@
 import requests
 import asyncio
 import os
-import json
 import tiktoken
 import asyncpg
 
+from log_memories import format_memories
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -14,46 +14,6 @@ load_dotenv()
 def get_jwt_token():
     # put ur jwt here
     return 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyXzAxSFJCSjhGVlAzSlQyOERFV1hONkpQS0Y1IiwiZXhwIjoxNzIyODk2Nzk1LCJpYXQiOjE3MTk4NzI3OTV9.dBw8tb5_6Gmq58pAs75A6tAyPkHWgnrxk123MMLihmQ'
-
-def delete_all_memories(base_url, user_id):
-    endpoint = f"{base_url}/memories/delete_all"
-    token = get_jwt_token()
-    payload = {"user_id": user_id}
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}"
-    }
-    response = requests.post(endpoint, json=payload, headers=headers)
-    response.raise_for_status()
-    return response.json()
-
-def add_memory(base_url, prompt, id=None):
-    endpoint = f"{base_url}/memories/add_memory_prompt"
-    # Prepare the payload
-    token = get_jwt_token()
-    print("adding memory")
-    print("== prompt ==")
-    print(prompt)
-    payload = {
-        "prompt": prompt
-    }
-    if id:
-        payload["id"] = str(id)
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}"
-    }
-    try:
-        response = requests.post(endpoint, json=payload, headers=headers)
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
-        print(f"Status Code: {response.status_code}")
-        print("Response:")
-        print(response.text)
-        return response.json()  # Return the parsed JSON response
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred: {e}")
-        return None
 
 # Modify this function to include the JWT token
 def generate_from_chat(base_url, user_id, max_samples=1000, samples_per_query=30, range=None):
@@ -128,33 +88,6 @@ def test_memory_increment(base_url, user_id, days_back=3):
     
     print("All test cases completed.")
 
-def get_all(base_url, user_id, format=False):
-    endpoint = f"{base_url}/memories/get_all"
-    token = get_jwt_token()
-    params = {"user_id": user_id}  # Add user_id to the params
-    if format:
-        params["format"] = "true"
-    
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
-    try:
-        response = requests.get(endpoint, params=params, headers=headers)
-        response.raise_for_status()
-        result = response.json()
-        # Write result to file
-        log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'logs', 'memory_experiments')
-        os.makedirs(log_dir, exist_ok=True)
-        file_path = os.path.join(log_dir, f"{user_id}_memory.txt")
-        
-        with open(file_path, 'w') as f:
-            json.dump(result, f, indent=2)
-        
-        return result
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred: {e}")
-        return None
-
 def log_response(test_case, response, log_dir):
     log_file_path = os.path.join(log_dir, f'{test_case}.log')
     with open(log_file_path, 'w') as log_file:
@@ -165,7 +98,6 @@ def log_response(test_case, response, log_dir):
             memories = response.json()
             for memory in memories:
                 log_file.write(f'{memory["content"]},{memory["grouping"]}\n')
-
 
 async def get_all_users():
     load_dotenv()
@@ -202,16 +134,16 @@ if __name__ == '__main__':
     # Run the asynchronous function to get all users
     users = asyncio.run(get_all_users())
     user_ids = [user['id'] for user in users]
+    chunk = int(len(user_ids)*0.05)
+    user_ids = user_ids[chunk:chunk+15]
     print(f"Found {len(user_ids)} users")
 
     def process_user(user_id):
-        delete_all_memories(base_url, user_id)
-        start_date = datetime.min
+        start_date = datetime(1970, 1, 1)  # Use Unix epoch start date
         range_payload = [int(start_date.timestamp()), int(datetime.utcnow().timestamp())]
         response = generate_from_chat(base_url, user_id, range=range_payload)
-        print(f'Getting mem for {user_id}')
-        final_mem = get_all(base_url, user_id, format=True)
-        return final_mem
+        formatted_memory = format_memories(response.text)
+        return user_id, formatted_memory
 
     # Process users in batches
     for i in range(0, len(user_ids), batch_size):
@@ -223,8 +155,16 @@ if __name__ == '__main__':
             
             for future in as_completed(futures):
                 try:
-                    result = future.result()
+                    user_id, result = future.result()
                     # You can process or store the result here if needed
+                    # Create the directory if it doesn't exist
+                    os.makedirs('logs/user_memories', exist_ok=True)
+                    
+                    # Write the result to a file
+                    with open(f'logs/user_memories/{user_id}.txt', 'w') as f:
+                        f.write(result)
+                    
+                    print(f"Wrote memories for user {user_id}")
                 except Exception as e:
                     print(f"An error occurred: {e}")
 
