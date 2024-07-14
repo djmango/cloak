@@ -13,7 +13,7 @@ load_dotenv()
 
 def get_jwt_token():
     # put ur jwt here
-    return 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyXzAxSFJCSjhGVlAzSlQyOERFV1hONkpQS0Y1IiwiZXhwIjoxNzIyODk2Nzk1LCJpYXQiOjE3MTk4NzI3OTV9.dBw8tb5_6Gmq58pAs75A6tAyPkHWgnrxk123MMLihmQ'
+    return os.getenv("JWT_TOKEN")
 
 # Modify this function to include the JWT token
 def generate_from_chat(base_url, user_id, max_samples=1000, samples_per_query=30, range=None):

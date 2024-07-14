@@ -366,7 +366,7 @@ impl Memory {
             created_at: created_at.unwrap_or_else(Utc::now),
             updated_at: Utc::now(),
             content: content.to_string(),
-            grouping: grouping.map(|g| g.to_string()),
+            grouping: Some(Self::get_valid_group(grouping)),
             ..Default::default()
         }
     }
