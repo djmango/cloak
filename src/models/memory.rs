@@ -339,9 +339,8 @@ impl Memory {
     pub fn get_valid_group(group: Option<&str>) -> String {
         match group {
             Some(g) => {
-                let lowercase_group = g.to_lowercase();
                 for allowed_group in ALLOWED_GROUPS.iter() {
-                    if allowed_group.to_lowercase() == lowercase_group {
+                    if allowed_group == g {
                         return allowed_group.clone();
                     }
                 }
