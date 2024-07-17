@@ -1,0 +1,3 @@
+
+ALTER TABLE recordings 
+ADD COLUMN length_ms BIGINT NOT NULL DEFAULT 0;

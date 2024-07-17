@@ -7,6 +7,7 @@ pub mod user;
 pub mod recordings;
 
 pub use chat::Chat;
+pub use devent::Devent;
 pub use file::File;
 pub use memory::Memory;
 pub use message::Message;
