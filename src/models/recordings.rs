@@ -35,6 +35,7 @@ impl Default for Recording {
 impl Recording {
     pub async fn new(
         pool: &PgPool,
+        recording_id: Uuid,
         session_id: Uuid,
         s3_object_key: String,
         start_timestamp: i64,
@@ -44,7 +45,7 @@ impl Recording {
             .naive_utc();
 
         let recording = Recording {
-            id: Uuid::new_v4(),
+            id: recording_id,
             session_id,
             s3_object_key,
             start_timestamp,

@@ -6,6 +6,7 @@ use crate::models::devent::{KeyboardAction, MouseAction, ScrollAction};
 #[derive(Deserialize)]
 pub struct CreateDeventRequest {
     pub session_id: Uuid,
+    pub recording_id: Uuid,
     pub mouse_action: Option<MouseAction>,
     pub keyboard_action: Option<KeyboardAction>,
     pub scroll_action: Option<ScrollAction>,

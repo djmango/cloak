@@ -16,7 +16,8 @@ async fn create_devent(
 ) -> Result<web::Json<Devent>, actix_web::Error> {
     let devent = Devent::new(
         &app_state.pool,
-        req_body.session_id, 
+        req_body.session_id,
+        req_body.recording_id,
         req_body.mouse_action.clone(), 
         req_body.keyboard_action.clone(), 
         req_body.scroll_action.clone(), 

@@ -126,7 +126,7 @@ pub struct ScrollAction {
 pub struct Devent {
     pub id: Uuid,
     pub session_id: Uuid,
-    pub recording_id: Option<Uuid>,
+    pub recording_id: Uuid,
     pub mouse_action: Option<MouseAction>,
     pub keyboard_action: Option<KeyboardAction>,
     pub scroll_action: Option<ScrollAction>,
@@ -143,7 +143,7 @@ impl Default for Devent {
         Devent {
             id: Uuid::new_v4(),
             session_id: Uuid::new_v4(),
-            recording_id: None,
+            recording_id: Uuid::new_v4(),
             mouse_action: None,
             keyboard_action: None,
             scroll_action: None,
@@ -161,6 +161,7 @@ impl Devent {
     pub async fn new(
         pool: &PgPool,
         session_id: Uuid,
+        recording_id: Uuid,
         mouse_action: Option<MouseAction>,
         keyboard_action: Option<KeyboardAction>,
         scroll_action: Option<ScrollAction>,
@@ -175,6 +176,7 @@ impl Devent {
         let devent = Devent {
             id: Uuid::new_v4(),
             session_id,
+            recording_id,
             mouse_action,
             keyboard_action,
             scroll_action,
@@ -186,11 +188,12 @@ impl Devent {
 
         query!(
             r#"
-            INSERT INTO devents (id, session_id, mouse_action, keyboard_action, scroll_action, mouse_x, mouse_y, event_timestamp, deleted_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO devents (id, session_id, recording_id, mouse_action, keyboard_action, scroll_action, mouse_x, mouse_y, event_timestamp, deleted_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             "#,
             devent.id,
             devent.session_id,
+            devent.recording_id,
             devent.mouse_action.clone() as Option<MouseAction>,
             devent.keyboard_action.clone() as Option<KeyboardAction>,
             devent.scroll_action.clone() as Option<ScrollAction>,
