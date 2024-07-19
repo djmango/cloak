@@ -154,6 +154,11 @@ async fn main(
                         .service(routes::memory::delete_memory),
                 )
                 .service(web::scope("/sidekick").service(routes::sidekick::fetch_save_url))
+                .service(web::scope("/devents")
+                    .service(routes::devents::get_devents_for_session)
+                    .service(routes::devents::get_devent)
+                    .service(routes::devents::create_devent)
+                )
                 .service(web::scope("/sync").service(routes::sync::sync_all))
                 .service(web::scope("/webhook").service(routes::webhook::user_created))
                 .service(Scalar::with_url("/scalar", openapi))
