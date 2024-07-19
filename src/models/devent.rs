@@ -113,6 +113,8 @@ pub enum KeyboardAction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[sqlx(type_name = "scroll_action")] // SQL value name
+#[serde(rename_all = "lowercase")] // JSON value name
 pub struct ScrollAction {
     pub x: i32,
     pub y: i32,
