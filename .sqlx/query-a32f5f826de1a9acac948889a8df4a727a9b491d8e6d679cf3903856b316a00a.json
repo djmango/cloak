@@ -1,0 +1,138 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO devents (id, session_id, recording_id, mouse_action, keyboard_action, scroll_action, mouse_x, mouse_y, event_timestamp, deleted_at, created_at, updated_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "mouse_action_enum",
+            "kind": {
+              "Enum": [
+                "left",
+                "right",
+                "middle",
+                "button4",
+                "button5"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "keyboard_action_enum",
+            "kind": {
+              "Enum": [
+                "shift",
+                "ctrl",
+                "alt",
+                "meta",
+                "f1",
+                "f2",
+                "f3",
+                "f4",
+                "f5",
+                "f6",
+                "f7",
+                "f8",
+                "f9",
+                "f10",
+                "f11",
+                "f12",
+                "a",
+                "b",
+                "c",
+                "d",
+                "e",
+                "f",
+                "g",
+                "h",
+                "i",
+                "j",
+                "k",
+                "l",
+                "m",
+                "n",
+                "o",
+                "p",
+                "q",
+                "r",
+                "s",
+                "t",
+                "u",
+                "v",
+                "w",
+                "x",
+                "y",
+                "z",
+                "num_0",
+                "num_1",
+                "num_2",
+                "num_3",
+                "num_4",
+                "num_5",
+                "num_6",
+                "num_7",
+                "num_8",
+                "num_9",
+                "arrow_up",
+                "arrow_down",
+                "arrow_left",
+                "arrow_right",
+                "home",
+                "end",
+                "page_up",
+                "page_down",
+                "enter",
+                "escape",
+                "tab",
+                "space",
+                "backspace",
+                "insert",
+                "delete",
+                "caps_lock",
+                "num_lock",
+                "scroll_lock",
+                "pause",
+                "print_screen"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "scroll_action",
+            "kind": {
+              "Composite": [
+                [
+                  "x",
+                  "Int4"
+                ],
+                [
+                  "y",
+                  "Int4"
+                ],
+                [
+                  "duration",
+                  "Int4"
+                ]
+              ]
+            }
+          }
+        },
+        "Int4",
+        "Int4",
+        "Timestamp",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a32f5f826de1a9acac948889a8df4a727a9b491d8e6d679cf3903856b316a00a"
+}
