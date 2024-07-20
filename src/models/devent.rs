@@ -158,6 +158,7 @@ impl Default for Devent {
 }
 
 impl Devent {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         pool: &PgPool,
         session_id: Uuid,
