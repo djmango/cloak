@@ -8,3 +8,4 @@ pub mod pay;
 pub mod sidekick;
 pub mod sync;
 pub mod webhook;
+pub mod devents;

@@ -16,6 +16,7 @@ async fn fetch_save_url(
     _authenticated_user: AuthenticatedUser,
     req_body: web::Json<SaveRecordingRequest>,
 ) -> Result<String, actix_web::Error> {
+    let recording_id = req_body.recording_id;
     let session_id = req_body.session_id;
     let start_timestamp = req_body.start_timestamp;
 
@@ -23,6 +24,7 @@ async fn fetch_save_url(
 
     Recording::new(
         &app_state.pool.clone(),
+        recording_id,
         session_id,
         s3_object_key.clone(),
         start_timestamp,
