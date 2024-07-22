@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, MappedLocalTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool, Type};
 use uuid::Uuid;
@@ -132,7 +132,7 @@ pub struct Devent {
     pub scroll_action: Option<ScrollAction>,
     pub mouse_x: i32,
     pub mouse_y: i32,
-    pub event_timestamp: chrono::NaiveDateTime,
+    pub event_timestamp: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -149,7 +149,7 @@ impl Default for Devent {
             scroll_action: None,
             mouse_x: 0,
             mouse_y: 0,
-            event_timestamp: chrono::NaiveDateTime::default(),
+            event_timestamp: Utc::now(),
             deleted_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -170,9 +170,10 @@ impl Devent {
         mouse_y: i32,
         event_timestamp: i64,
     ) -> Result<Self, Error> {
-        let event_timestamp = chrono::DateTime::from_timestamp(event_timestamp, 0)
-            .ok_or_else(|| anyhow::anyhow!("Invalid event_timestamp"))?
-            .naive_utc();
+        let event_timestamp = match Utc.timestamp_opt(event_timestamp, 0) {
+            MappedLocalTime::Single(et) => et,
+            _ => return Err(anyhow::anyhow!("Invalid event_timestamp")),
+        };
 
         let devent = Devent {
             id: Uuid::new_v4(),

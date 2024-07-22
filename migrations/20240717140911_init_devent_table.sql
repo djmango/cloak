@@ -15,8 +15,11 @@ CREATE TABLE devents (
     scroll_action scroll_action,
     mouse_x INTEGER NOT NULL,
     mouse_y INTEGER NOT NULL,
-    event_timestamp TIMESTAMP NOT NULL,
+    event_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     deleted_at TIMESTAMP WITH TIME ZONE
 );
+
+ALTER TABLE recordings
+ALTER COLUMN start_timestamp TYPE TIMESTAMP WITH TIME ZONE;

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, MappedLocalTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool};
 use utoipa::ToSchema;
@@ -10,7 +10,7 @@ pub struct Recording {
     pub id: Uuid,
     pub session_id: Uuid,
     pub s3_object_key: String,
-    pub start_timestamp: chrono::NaiveDateTime,
+    pub start_timestamp: DateTime<Utc>,
     pub length_ms: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -23,7 +23,7 @@ impl Default for Recording {
             id: Uuid::new_v4(),
             session_id: Uuid::new_v4(),
             s3_object_key: String::new(),
-            start_timestamp: chrono::NaiveDateTime::default(),
+            start_timestamp: Utc::now(),
             length_ms: 0,
             deleted_at: None,
             created_at: Utc::now(),
@@ -40,9 +40,10 @@ impl Recording {
         s3_object_key: String,
         start_timestamp: i64,
     ) -> Result<Self> {
-        let start_timestamp = chrono::DateTime::from_timestamp(start_timestamp, 0)
-            .ok_or_else(|| anyhow::anyhow!("Invalid start_timestamp"))?
-            .naive_utc();
+        let start_timestamp = match Utc.timestamp_opt(start_timestamp, 0) {
+            MappedLocalTime::Single(st) => st,
+            _ => return Err(anyhow::anyhow!("Invalid start_timestamp")),
+        };
 
         let recording = Recording {
             id: recording_id,
