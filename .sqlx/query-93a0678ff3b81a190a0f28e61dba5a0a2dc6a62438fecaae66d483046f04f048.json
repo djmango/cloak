@@ -8,7 +8,7 @@
         "Uuid",
         "Uuid",
         "Text",
-        "Timestamp",
+        "Timestamptz",
         "Timestamptz",
         "Timestamptz"
       ]
