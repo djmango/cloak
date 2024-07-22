@@ -230,7 +230,7 @@ async fn chat(
     let model_id = request_args.model.clone();
 
     // Use the chat id to track threads
-    request_args.thread_identifier = chat_id.clone().map(|id| id.to_string());
+    request_args.thread_identifier = chat_id.map(|id| id.to_string());
 
     let response = client
         .chat()
