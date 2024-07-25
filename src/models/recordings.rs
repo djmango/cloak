@@ -13,7 +13,7 @@ pub struct Recording {
     pub session_id: Uuid,
     pub s3_object_key: String,
     pub start_timestamp: DateTime<Utc>,
-    pub length_ms: u32,
+    pub length_ms: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -41,7 +41,7 @@ impl Recording {
         session_id: Uuid,
         s3_object_key: String,
         start_timestamp: Timestamp,
-        duration_ms: u32,
+        duration_ms: u64,
     ) -> Result<Self> {
         let start_timestamp = match Utc.timestamp_opt(start_timestamp.seconds, start_timestamp.nanos) {
             MappedLocalTime::Single(st) => st,
@@ -59,10 +59,10 @@ impl Recording {
 
         query!(
             r#"
-            INSERT INTO recordings (id, session_id, s3_object_key, start_timestamp, created_at, updated_at) 
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO recordings (id, session_id, s3_object_key, start_timestamp, length_ms, created_at, updated_at) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
-            recording.id, recording.session_id, recording.s3_object_key, recording.start_timestamp, recording.created_at, recording.updated_at
+            recording.id, recording.session_id, recording.s3_object_key, recording.start_timestamp, recording.length_ms as i64, recording.created_at, recording.updated_at
         )
         .execute(pool)
         .await?;

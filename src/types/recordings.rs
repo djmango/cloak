@@ -8,5 +8,5 @@ pub struct SaveRecordingRequest {
     pub recording_id: Uuid,
     pub session_id: Uuid,
     pub start_timestamp: Timestamp,
-    pub duration_ms: u32,
+    pub duration_ms: u64,
 }
