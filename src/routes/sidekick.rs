@@ -21,8 +21,6 @@ async fn fetch_save_url(
     let start_timestamp = req_body.start_timestamp.clone();
     let duration_ms = req_body.duration_ms;
 
-    error!("Saving recording row: {:?}", duration_ms);
-
     let s3_object_key = format!("{}/{}-{}.mp4", session_id, start_timestamp.seconds, start_timestamp.nanos);
 
     Recording::new(
