@@ -5,6 +5,8 @@ use uuid::Uuid;
 use std::fmt;
 use anyhow::{Result, Error};
 
+use crate::types::Timestamp;
+
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 #[sqlx(type_name = "mouse_action_enum", rename_all = "lowercase")] // SQL value name
 #[serde(rename_all = "lowercase")] // JSON value name
@@ -246,9 +248,9 @@ impl Devent {
         scroll_action: Option<ScrollAction>,
         mouse_x: i32,
         mouse_y: i32,
-        event_timestamp: i64,
+        event_timestamp: Timestamp,
     ) -> Result<Self, Error> {
-        let event_timestamp = match Utc.timestamp_opt(event_timestamp, 0) {
+        let event_timestamp = match Utc.timestamp_opt(event_timestamp.seconds, event_timestamp.nanos) {
             MappedLocalTime::Single(et) => et,
             _ => return Err(anyhow::anyhow!("Invalid event_timestamp")),
         };

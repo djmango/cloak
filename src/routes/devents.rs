@@ -23,7 +23,7 @@ async fn create_devent(
         req_body.scroll_action.clone(), 
         req_body.mouse_x, 
         req_body.mouse_y, 
-        req_body.event_timestamp
+        req_body.event_timestamp.clone()
     )
     .await
     .map_err(|e|{

@@ -5,13 +5,15 @@ use sqlx::{query, FromRow, PgPool};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::types::Timestamp;
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Recording {
     pub id: Uuid,
     pub session_id: Uuid,
     pub s3_object_key: String,
     pub start_timestamp: DateTime<Utc>,
-    pub length_ms: u64,
+    pub length_ms: u32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -38,9 +40,10 @@ impl Recording {
         recording_id: Uuid,
         session_id: Uuid,
         s3_object_key: String,
-        start_timestamp: i64,
+        start_timestamp: Timestamp,
+        duration_ms: u32,
     ) -> Result<Self> {
-        let start_timestamp = match Utc.timestamp_opt(start_timestamp, 0) {
+        let start_timestamp = match Utc.timestamp_opt(start_timestamp.seconds, start_timestamp.nanos) {
             MappedLocalTime::Single(st) => st,
             _ => return Err(anyhow::anyhow!("Invalid start_timestamp")),
         };
@@ -50,6 +53,7 @@ impl Recording {
             session_id,
             s3_object_key,
             start_timestamp,
+            length_ms: duration_ms,
             ..Default::default()
         };
 
