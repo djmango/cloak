@@ -29,9 +29,9 @@ impl fmt::Display for MouseAction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
-#[sqlx(type_name = "keyboard_action_enum", rename_all = "lowercase")] // SQL value name
+#[sqlx(type_name = "keyboard_action_key_enum", rename_all = "lowercase")] // SQL value name
 #[serde(rename_all = "lowercase")] // JSON value name
-pub enum KeyboardAction {
+pub enum KeyboardActionKey {
     // Modifier Keys
     Shift,
     Control,
@@ -110,6 +110,14 @@ pub enum KeyboardAction {
     ScrollLock,
     Pause,
     PrintScreen,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[sqlx(type_name = "keyboard_action")] // SQL value name
+#[serde(rename_all = "lowercase")] // JSON value name
+pub struct KeyboardAction {
+    pub key: KeyboardActionKey,
+    pub duration: i32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -228,6 +236,17 @@ impl Devent {
 
         let devents = sqlx::query_as::<_, Devent>(query_str)
             .bind(session_id)
+            .fetch_all(pool)
+            .await?;
+
+        Ok(devents)
+    }
+
+    pub async fn get_all_for_recording(pool: &PgPool, recording_id: Uuid) -> Result<Vec<Devent>, Error> {
+        let query_str = "SELECT * FROM devents WHERE recording_id = $1";
+
+        let devents = sqlx::query_as::<_, Devent>(query_str)
+            .bind(recording_id)
             .fetch_all(pool)
             .await?;
 

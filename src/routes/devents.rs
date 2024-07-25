@@ -50,13 +50,29 @@ async fn get_devent(
     Ok(web::Json(devent))
 }
 
-#[get("/all/{session_id}")]
+#[get("/session/{session_id}")]
 async fn get_devents_for_session(
     app_state: web::Data<Arc<AppState>>,
     _authenticated_user: AuthenticatedUser,
     session_id: web::Path<Uuid>,
 ) -> Result<web::Json<Vec<Devent>>, actix_web::Error> {
     let devents = Devent::get_all_for_session(&app_state.pool, session_id.into_inner())
+        .await
+        .map_err(|e|{
+            error!("Error getting devents: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    Ok(web::Json(devents))
+}
+
+#[get("/recording/{recording_id}")]
+async fn get_devents_for_recording(
+    app_state: web::Data<Arc<AppState>>,
+    _authenticated_user: AuthenticatedUser,
+    recording_id: web::Path<Uuid>,
+) -> Result<web::Json<Vec<Devent>>, actix_web::Error> {
+    let devents = Devent::get_all_for_recording(&app_state.pool, recording_id.into_inner())
         .await
         .map_err(|e|{
             error!("Error getting devents: {:?}", e);
