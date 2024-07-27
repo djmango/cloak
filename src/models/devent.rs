@@ -1,11 +1,9 @@
-use chrono::{DateTime, MappedLocalTime, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgHasArrayType, query, FromRow, PgPool, Type};
 use uuid::Uuid;
 use std::fmt;
 use anyhow::{Result, Error};
-
-use crate::types::Timestamp;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 #[sqlx(type_name = "mouse_action_enum", rename_all = "lowercase")] // SQL value name
@@ -248,12 +246,9 @@ impl Devent {
         scroll_action: Option<ScrollAction>,
         mouse_x: i32,
         mouse_y: i32,
-        event_timestamp: Timestamp,
+        event_timestamp_nanos: i64,
     ) -> Result<Self, Error> {
-        let event_timestamp = match Utc.timestamp_opt(event_timestamp.seconds, event_timestamp.nanos) {
-            MappedLocalTime::Single(et) => et,
-            _ => return Err(anyhow::anyhow!("Invalid event_timestamp")),
-        };
+        let event_timestamp = Utc.timestamp_nanos(event_timestamp_nanos);
 
         let devent = Devent {
             id: Uuid::new_v4(),

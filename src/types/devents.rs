@@ -3,12 +3,6 @@ use uuid::Uuid;
 
 use crate::models::devent::{KeyboardAction, MouseAction, ScrollAction};
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct Timestamp {
-    pub seconds: i64,
-    pub nanos: u32,
-}
-
 #[derive(Deserialize)]
 pub struct CreateDeventRequest {
     pub session_id: Uuid,
@@ -18,5 +12,5 @@ pub struct CreateDeventRequest {
     pub scroll_action: Option<ScrollAction>,
     pub mouse_x: i32,
     pub mouse_y: i32,
-    pub event_timestamp: Timestamp,
+    pub event_timestamp_nanos: i64,
 }

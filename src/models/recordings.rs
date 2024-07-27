@@ -1,11 +1,9 @@
 use anyhow::Result;
-use chrono::{DateTime, MappedLocalTime, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{query, FromRow, PgPool};
 use utoipa::ToSchema;
 use uuid::Uuid;
-
-use crate::types::Timestamp;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Recording {
@@ -40,13 +38,10 @@ impl Recording {
         recording_id: Uuid,
         session_id: Uuid,
         s3_object_key: String,
-        start_timestamp: Timestamp,
+        start_timestamp_nanos: i64,
         duration_ms: u64,
     ) -> Result<Self> {
-        let start_timestamp = match Utc.timestamp_opt(start_timestamp.seconds, start_timestamp.nanos) {
-            MappedLocalTime::Single(st) => st,
-            _ => return Err(anyhow::anyhow!("Invalid start_timestamp")),
-        };
+        let start_timestamp = Utc.timestamp_nanos(start_timestamp_nanos);
 
         let recording = Recording {
             id: recording_id,
