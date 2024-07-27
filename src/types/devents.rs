@@ -12,5 +12,5 @@ pub struct CreateDeventRequest {
     pub scroll_action: Option<ScrollAction>,
     pub mouse_x: i32,
     pub mouse_y: i32,
-    pub event_timestamp: i64,
+    pub event_timestamp_nanos: i64,
 }

@@ -5,5 +5,6 @@ use uuid::Uuid;
 pub struct SaveRecordingRequest {
     pub recording_id: Uuid,
     pub session_id: Uuid,
-    pub start_timestamp: i64,
+    pub start_timestamp_nanos: i64,
+    pub duration_ms: u64,
 }

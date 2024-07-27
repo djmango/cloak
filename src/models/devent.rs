@@ -1,6 +1,6 @@
-use chrono::{DateTime, MappedLocalTime, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{query, FromRow, PgPool, Type};
+use sqlx::{postgres::PgHasArrayType, query, FromRow, PgPool, Type};
 use uuid::Uuid;
 use std::fmt;
 use anyhow::{Result, Error};
@@ -29,14 +29,31 @@ impl fmt::Display for MouseAction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
-#[sqlx(type_name = "keyboard_action_enum", rename_all = "lowercase")] // SQL value name
+#[sqlx(type_name = "modifier_key_enum", rename_all = "lowercase")] // SQL value name
 #[serde(rename_all = "lowercase")] // JSON value name
-pub enum KeyboardAction {
-    // Modifier Keys
+pub enum ModifierKey {
+    #[sqlx(rename = "caps_lock")]
+    #[serde(rename = "caps_lock")]
+    CapsLock,
     Shift,
+    Command,
+    Option,
     Control,
+    Fn,
     Alt,
     Meta,
+}
+
+impl PgHasArrayType for ModifierKey {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        <Self as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[sqlx(type_name = "keyboard_action_key_enum", rename_all = "lowercase")] // SQL value name
+#[serde(rename_all = "lowercase")] // JSON value name
+pub enum KeyboardActionKey {
     // Function Keys
     F1,
     F2,
@@ -78,24 +95,56 @@ pub enum KeyboardAction {
     Y,
     Z,
     // Number Keys
+    #[sqlx(rename = "0")]
+    #[serde(rename = "0")]
     Num0,
+    #[sqlx(rename = "1")]
+    #[serde(rename = "1")]
     Num1,
+    #[sqlx(rename = "2")]
+    #[serde(rename = "2")]
     Num2,
+    #[sqlx(rename = "3")]
+    #[serde(rename = "3")]
     Num3,
+    #[sqlx(rename = "4")]
+    #[serde(rename = "4")]
     Num4,
+    #[sqlx(rename = "5")]
+    #[serde(rename = "5")]
     Num5,
+    #[sqlx(rename = "6")]
+    #[serde(rename = "6")]
     Num6,
+    #[sqlx(rename = "7")]
+    #[serde(rename = "7")]
     Num7,
+    #[sqlx(rename = "8")]
+    #[serde(rename = "8")]
     Num8,
+    #[sqlx(rename = "9")]
+    #[serde(rename = "9")]
     Num9,
     // Navigation Keys
+    #[sqlx(rename = "arrow_up")]
+    #[serde(rename = "arrow_up")]
     ArrowUp,
+    #[sqlx(rename = "arrow_down")]
+    #[serde(rename = "arrow_down")]
     ArrowDown,
+    #[sqlx(rename = "arrow_left")]
+    #[serde(rename = "arrow_left")]
     ArrowLeft,
+    #[sqlx(rename = "arrow_right")]
+    #[serde(rename = "arrow_right")]
     ArrowRight,
     Home,
     End,
+    #[sqlx(rename = "page_up")]
+    #[serde(rename = "page_up")]
     PageUp,
+    #[sqlx(rename = "page_down")]
+    #[serde(rename = "page_down")]
     PageDown,
     // Special Keys
     Escape,
@@ -105,11 +154,40 @@ pub enum KeyboardAction {
     Backspace,
     Insert,
     Delete,
-    CapsLock,
+    #[sqlx(rename = "num_lock")]
+    #[serde(rename = "num_lock")]
     NumLock,
+    #[sqlx(rename = "scroll_lock")]
+    #[serde(rename = "scroll_lock")]
     ScrollLock,
     Pause,
+    #[sqlx(rename = "print_screen")]
+    #[serde(rename = "print_screen")]
     PrintScreen,
+    // Symbols
+    Grave,
+    Minus,
+    Equals,
+    #[sqlx(rename = "bracket_left")]
+    #[serde(rename = "bracket_left")]
+    BracketLeft,
+    #[sqlx(rename = "bracket_right")]
+    #[serde(rename = "bracket_right")]
+    BracketRight,
+    Semicolon,
+    Quote,
+    Comma,
+    Period,
+    Slash,
+    Backslash,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[sqlx(type_name = "keyboard_action")] // SQL value name
+#[serde(rename_all = "lowercase")] // JSON value name
+pub struct KeyboardAction {
+    pub key: KeyboardActionKey,
+    pub modifiers: Vec<ModifierKey>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -168,12 +246,9 @@ impl Devent {
         scroll_action: Option<ScrollAction>,
         mouse_x: i32,
         mouse_y: i32,
-        event_timestamp: i64,
+        event_timestamp_nanos: i64,
     ) -> Result<Self, Error> {
-        let event_timestamp = match Utc.timestamp_opt(event_timestamp, 0) {
-            MappedLocalTime::Single(et) => et,
-            _ => return Err(anyhow::anyhow!("Invalid event_timestamp")),
-        };
+        let event_timestamp = Utc.timestamp_nanos(event_timestamp_nanos);
 
         let devent = Devent {
             id: Uuid::new_v4(),
@@ -228,6 +303,17 @@ impl Devent {
 
         let devents = sqlx::query_as::<_, Devent>(query_str)
             .bind(session_id)
+            .fetch_all(pool)
+            .await?;
+
+        Ok(devents)
+    }
+
+    pub async fn get_all_for_recording(pool: &PgPool, recording_id: Uuid) -> Result<Vec<Devent>, Error> {
+        let query_str = "SELECT * FROM devents WHERE recording_id = $1";
+
+        let devents = sqlx::query_as::<_, Devent>(query_str)
+            .bind(recording_id)
             .fetch_all(pool)
             .await?;
 

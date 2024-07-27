@@ -18,7 +18,8 @@ async fn fetch_save_url(
 ) -> Result<String, actix_web::Error> {
     let recording_id = req_body.recording_id;
     let session_id = req_body.session_id;
-    let start_timestamp = req_body.start_timestamp;
+    let start_timestamp = req_body.start_timestamp_nanos;
+    let duration_ms = req_body.duration_ms;
 
     let s3_object_key = format!("{}/{}.mp4", session_id, start_timestamp);
 
@@ -28,6 +29,7 @@ async fn fetch_save_url(
         session_id,
         s3_object_key.clone(),
         start_timestamp,
+        duration_ms,
     )
     .await
     .map_err(|e| {

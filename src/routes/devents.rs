@@ -23,7 +23,7 @@ async fn create_devent(
         req_body.scroll_action.clone(), 
         req_body.mouse_x, 
         req_body.mouse_y, 
-        req_body.event_timestamp
+        req_body.event_timestamp_nanos
     )
     .await
     .map_err(|e|{
@@ -37,9 +37,15 @@ async fn create_devent(
 #[get("/{id}")]
 async fn get_devent(
     app_state: web::Data<Arc<AppState>>,
-    _authenticated_user: AuthenticatedUser,
+    authenticated_user: AuthenticatedUser,
     id: web::Path<Uuid>,
 ) -> Result<web::Json<Devent>, actix_web::Error> {
+    if !authenticated_user.is_admin() {
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Unauthorized".to_string(),
+        ));
+    }
+
     let devent = Devent::get(&app_state.pool, id.into_inner())
         .await
         .map_err(|e|{
@@ -50,13 +56,41 @@ async fn get_devent(
     Ok(web::Json(devent))
 }
 
-#[get("/all/{session_id}")]
+#[get("/session/{session_id}")]
 async fn get_devents_for_session(
     app_state: web::Data<Arc<AppState>>,
-    _authenticated_user: AuthenticatedUser,
+    authenticated_user: AuthenticatedUser,
     session_id: web::Path<Uuid>,
 ) -> Result<web::Json<Vec<Devent>>, actix_web::Error> {
+    if !authenticated_user.is_admin() {
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Unauthorized".to_string(),
+        ));
+    }
+
     let devents = Devent::get_all_for_session(&app_state.pool, session_id.into_inner())
+        .await
+        .map_err(|e|{
+            error!("Error getting devents: {:?}", e);
+            actix_web::error::ErrorInternalServerError(e)
+        })?;
+
+    Ok(web::Json(devents))
+}
+
+#[get("/recording/{recording_id}")]
+async fn get_devents_for_recording(
+    app_state: web::Data<Arc<AppState>>,
+    authenticated_user: AuthenticatedUser,
+    recording_id: web::Path<Uuid>,
+) -> Result<web::Json<Vec<Devent>>, actix_web::Error> {
+    if !authenticated_user.is_admin() {
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Unauthorized".to_string(),
+        ));
+    }
+
+    let devents = Devent::get_all_for_recording(&app_state.pool, recording_id.into_inner())
         .await
         .map_err(|e|{
             error!("Error getting devents: {:?}", e);
