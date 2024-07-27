@@ -36,7 +36,9 @@ impl AuthenticatedUser {
             "user_01J04BC3DXJ7PVGAW7VS30DG91" | // Vasyl Larin
             "user_01HTYMBHYK14M12HHK34A2R8RC" | // Dmitriy Osipov
             "user_01HYNY2S52Q5CQ6NWPP9D8D4AA" | // Francesco Simone Mensa
-            "user_01HX6WMNT229K6V7CFPD7VRNV8"   // Sergi C
+            "user_01HX6WMNT229K6V7CFPD7VRNV8" | // Sergi C
+            "user_01HX9N7GH5QRFTGMYVWNPHCYMM" | // David Spokes
+            "user_01J2MNK392KWQAJVX20CJBG5E7" // Simon Kirchebner
         )
     }
 }
