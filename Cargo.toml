@@ -26,9 +26,9 @@ reqwest = { version = "0.11.24", features = ["json"] }
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.114"
 sha2 = "0.10.8"
-shuttle-actix-web = "0.46.0"
-shuttle-persist = "0.46.0"
-shuttle-runtime = "0.46.0"
+shuttle-actix-web = "0.47.0"
+shuttle-persist = "0.47.0"
+shuttle-runtime = "0.47.0"
 sqlx = { version = "0.7", features = ["runtime-tokio", "tls-native-tls", "postgres", "macros", "time", "chrono", "uuid"] }
 tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1.40"
