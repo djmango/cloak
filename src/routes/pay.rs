@@ -9,9 +9,8 @@ use std::sync::Arc;
 use stripe::generated::checkout::checkout_session;
 use stripe::{
     BillingPortalSession, CheckoutSession, CheckoutSessionId, CheckoutSessionMode,
-    CreateBillingPortalSession, CreateCheckoutSession, CreateCheckoutSessionDiscounts,
-    CreateCheckoutSessionLineItems, Customer, CustomerSearchParams, ListSubscriptions,
-    UpdateCustomer,
+    CreateBillingPortalSession, CreateCheckoutSession, CreateCheckoutSessionLineItems, Customer,
+    CustomerSearchParams, ListSubscriptions, UpdateCustomer,
 };
 use tracing::{error, info, warn};
 use utoipa::OpenApi;
@@ -208,7 +207,7 @@ async fn checkout(
 
     // Price is hardcoded
     let line_item = CreateCheckoutSessionLineItems {
-        price: Some("price_1OsHQoHQqwgWa5gAAEIA1AMu".into()),
+        price: Some("price_1PQaZsHQqwgWa5gAdPOSxqPK".into()),
         quantity: Some(1),
         ..Default::default()
     };
@@ -266,10 +265,10 @@ async fn checkout(
     //     }
     // };
 
-    let discounts = Some(vec![CreateCheckoutSessionDiscounts {
-        coupon: Some("1UqUrexm".into()),
-        ..Default::default()
-    }]);
+    // let discounts = Some(vec![CreateCheckoutSessionDiscounts {
+    //     coupon: Some("1UqUrexm".into()),
+    //     ..Default::default()
+    // }]);
 
     // Grab existing users in stripe with the same email, handle gracefully
     let customer =
@@ -282,7 +281,7 @@ async fn checkout(
 
             CreateCheckoutSession {
                 customer: Some(customer.id.clone()),
-                discounts,
+                // discounts,
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
@@ -294,7 +293,7 @@ async fn checkout(
             info!("Did not find existing customer: {:?}", e);
             CreateCheckoutSession {
                 customer_email: checkout_request.email.as_str().into(),
-                discounts,
+                // discounts,
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
