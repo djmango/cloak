@@ -38,7 +38,8 @@ impl AuthenticatedUser {
             "user_01HYNY2S52Q5CQ6NWPP9D8D4AA" | // Francesco Simone Mensa
             "user_01HX6WMNT229K6V7CFPD7VRNV8" | // Sergi C
             "user_01HX9N7GH5QRFTGMYVWNPHCYMM" | // David Spokes
-            "user_01J2MNK392KWQAJVX20CJBG5E7" // Simon Kirchebner
+            "user_01J2MNK392KWQAJVX20CJBG5E7" | // Simon Kirchebner
+            "user_01HZEP4TFR49AG913DPQJ6MASW" // Idk some russian guy
         )
     }
 }
