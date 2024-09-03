@@ -207,7 +207,7 @@ async fn checkout(
 
     // Price is hardcoded
     let line_item = CreateCheckoutSessionLineItems {
-        price: Some("price_1PQaZsHQqwgWa5gAdPOSxqPK".into()),
+        price: Some("price_1P7M3gHQqwgWa5gANnfRYvQM".into()),
         quantity: Some(1),
         ..Default::default()
     };
