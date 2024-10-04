@@ -10,9 +10,10 @@ use sqlx::{query_as, FromRow, PgPool};
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{debug, info};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Memory {
     pub id: Uuid,
     pub user_id: String,

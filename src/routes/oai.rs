@@ -70,8 +70,10 @@ async fn create_system_prompt(
 #[utoipa::path(
     get,
     responses(
-        (status = 200, description = "Chat completion API", body = ChatCompletionResponse, content_type = "application/json"),
-        (status = 200, description = "Chat completion API (streaming)", body = ChatCompletionChunk, content_type = "text/event-stream"),
+        // (status = 200, description = "Chat completion API", body = ChatCompletionResponse, content_type = "application/json"),
+        // (status = 200, description = "Chat completion API (streaming)", body = ChatCompletionChunk, content_type = "text/event-stream"),
+        (status = 200, description = "Chat completion API",  content_type = "application/json"),
+        (status = 200, description = "Chat completion API (streaming)",  content_type = "text/event-stream"),
         (status = 400, description = "Bad Request"),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal Server Error")

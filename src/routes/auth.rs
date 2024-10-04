@@ -12,7 +12,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
-use utoipa::OpenApi;
+use utoipa::{OpenApi, ToSchema};
 
 use crate::models::User;
 use crate::types::{
@@ -92,7 +92,7 @@ async fn auth_callback_nextweb(
     Ok(web::Redirect::to(redirect_url))
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 struct RefreshTokenResponse {
     token: String,
 }

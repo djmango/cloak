@@ -57,7 +57,7 @@ pub struct Claims {
     pub iat: usize,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct ListMetadata {
     pub before: Option<String>,
     pub after: Option<String>,
