@@ -10,7 +10,6 @@ use models::User;
 use moka::future::Cache;
 use rand::seq::SliceRandom;
 use shuttle_actix_web::ShuttleActixWeb;
-use shuttle_persist::PersistInstance;
 use shuttle_runtime::SecretStore;
 use sqlx::postgres::PgPool;
 use std::collections::HashMap;
@@ -32,7 +31,6 @@ mod types;
 
 #[derive(Clone)]
 struct AppState {
-    persist: PersistInstance,
     pool: PgPool,
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
@@ -58,11 +56,9 @@ struct ApiDoc;
 #[shuttle_runtime::main]
 async fn main(
     #[shuttle_runtime::Secrets] secret_store: SecretStore,
-    #[shuttle_persist::Persist] persist: PersistInstance,
 ) -> ShuttleActixWeb<impl FnOnce(&mut web::ServiceConfig) + Send + Clone + 'static> {
     let app_config = Arc::new(AppConfig::new(&secret_store).unwrap());
     let app_state = Arc::new(AppState {
-        persist,
         pool: PgPool::connect(&app_config.db_connection_uri)
             .await
             .unwrap(),

@@ -44,13 +44,13 @@ async fn get_invite(
     user_invite.created_at = Utc::now().into();
 
     // Store the user invite data in Shuttle Persist
-    let result = app_state
-        .persist
-        .save::<UserInvite>(
-            &format!("user_invite:{}", &user_invite.email),
-            user_invite.clone(),
-        )
-        .map_err(|e| anyhow!("Failed to store user invite: {:?}", e));
+    // let result = app_state
+    //     .persist
+    //     .save::<UserInvite>(
+    //         &format!("user_invite:{}", &user_invite.email),
+    //         user_invite.clone(),
+    //     )
+    //     .map_err(|e| anyhow!("Failed to store user invite: {:?}", e));
 
     match result {
         Ok(_) => {
@@ -96,48 +96,48 @@ async fn get_invite(
 }
 
 /// List all user invites or filter by a promotion code
-#[utoipa::path(
-    get,
-    responses((status = 200, description = "List of user invites", body = Vec<UserInvite>, content_type = "application/json"))
-)]
-#[get("/list_invites")]
-async fn list_invites(
-    app_state: web::Data<Arc<AppState>>,
-    query: web::Query<InviteQuery>,
-) -> Result<impl Responder, actix_web::Error> {
-    let keys: Result<Vec<String>, anyhow::Error> = app_state
-        .persist
-        .list()
-        .map_err(|e| anyhow!("Failed to list user invites: {:?}", e));
+// #[utoipa::path(
+//     get,
+//     responses((status = 200, description = "List of user invites", body = Vec<UserInvite>, content_type = "application/json"))
+// )]
+// #[get("/list_invites")]
+// async fn list_invites(
+//     app_state: web::Data<Arc<AppState>>,
+//     query: web::Query<InviteQuery>,
+// ) -> Result<impl Responder, actix_web::Error> {
+//     let keys: Result<Vec<String>, anyhow::Error> = app_state
+//         .persist
+//         .list()
+//         .map_err(|e| anyhow!("Failed to list user invites: {:?}", e));
 
-    match keys {
-        Ok(keys) => {
-            let mut user_invites: Vec<UserInvite> = Vec::new();
-            for key in keys {
-                if key.starts_with("user_invite:") {
-                    if let Ok(user_invite) = app_state.persist.load::<UserInvite>(&key) {
-                        user_invites.push(user_invite);
-                    }
-                }
-            }
+//     match keys {
+//         Ok(keys) => {
+//             let mut user_invites: Vec<UserInvite> = Vec::new();
+//             for key in keys {
+//                 if key.starts_with("user_invite:") {
+//                     if let Ok(user_invite) = app_state.persist.load::<UserInvite>(&key) {
+//                         user_invites.push(user_invite);
+//                     }
+//                 }
+//             }
 
-            if let Some(ref code) = query.code {
-                let filtered_invites: Vec<UserInvite> = user_invites
-                    .into_iter()
-                    .filter(|invite| invite.code == *code)
-                    .collect();
+//             if let Some(ref code) = query.code {
+//                 let filtered_invites: Vec<UserInvite> = user_invites
+//                     .into_iter()
+//                     .filter(|invite| invite.code == *code)
+//                     .collect();
 
-                Ok(web::Json(filtered_invites))
-            } else {
-                Ok(web::Json(user_invites))
-            }
-        }
-        Err(e) => {
-            error!("Failed to list user invites: {:?}", e);
-            Err(actix_web::error::ErrorInternalServerError(e.to_string()))
-        }
-    }
-}
+//                 Ok(web::Json(filtered_invites))
+//             } else {
+//                 Ok(web::Json(user_invites))
+//             }
+//         }
+//         Err(e) => {
+//             error!("Failed to list user invites: {:?}", e);
+//             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
+//         }
+//     }
+// }
 
 #[get("/payment_success")]
 async fn payment_success(
