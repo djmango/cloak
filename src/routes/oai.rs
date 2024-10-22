@@ -142,6 +142,7 @@ async fn chat(
                 "openrouter/perplexity/llama-3-sonar-large-32k-online".to_string()
             }
             "openrouter/google/gemini-pro-1.5" => "gemini-1.5-flash-001".to_string(),
+            "claude-3-5-sonnet-20240620" => "claude-3-5-sonnet-20241022".to_string(),
             _ => request_args.model,
         };
     }
