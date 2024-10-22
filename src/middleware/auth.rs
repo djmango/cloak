@@ -41,7 +41,14 @@ impl AuthenticatedUser {
             "user_01J2MNK392KWQAJVX20CJBG5E7" | // Simon Kirchebner
             "user_01HZEP4TFR49AG913DPQJ6MASW" |
             "user_01HS55ATS5N0D9PEXY45TZDGXN" |
-            "user_01HVR20FDCZH3QX8WPYHR45MX7"
+            "user_01HVR20FDCZH3QX8WPYHR45MX7" |
+            "user_01HTJTP5X5PAH2XTH6A69Q3G08" |
+            "user_01J03D3QK27ZD0B2E9A60X6E2R" |
+            "user_01HRGR7RB2T8S04YXDH9YXQ31T" |
+            "user_01J0AVNGZW118RXB7JSGAVZSFM" |
+            "user_01HRDV9MWADXWSSNDE1HSASN8P" |
+            "user_01J03D570TSXTNZ3FJGZFZ8VHA" |
+            "user_01HRD1QJJTGDH2S2209N3WF9JX"
         )
     }
 }
