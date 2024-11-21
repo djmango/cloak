@@ -10,6 +10,7 @@ use async_openai::types::{
 };
 use async_openai::Client;
 use bytes::Bytes;
+use chrono::Utc;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
@@ -17,13 +18,12 @@ use serde_json::to_string;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use utoipa::OpenApi;
-use chrono::Utc;
 
 use crate::middleware::auth::AuthenticatedUser;
 use crate::models::message::Role;
 use crate::models::{Chat, Memory, Message};
-use crate::{prompts::Prompts, AppState};
 use crate::routes;
+use crate::{prompts::Prompts, AppState};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -142,7 +142,15 @@ async fn chat(
                 "openrouter/perplexity/llama-3-sonar-large-32k-online".to_string()
             }
             "openrouter/google/gemini-pro-1.5" => "gemini-1.5-flash-001".to_string(),
-            "claude-3-5-sonnet-20240620" => "claude-3-5-sonnet-20241022".to_string(),
+            "claude-3-5-sonnet-20240620" => {
+                "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0".to_string()
+            }
+            "claude-3-5-sonnet-20241022" => {
+                "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0".to_string()
+            }
+            "bedrock/anthropic.claude-3-opus-20240229-v1:0" => {
+                "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0".to_string()
+            }
             _ => request_args.model,
         };
     }
@@ -358,7 +366,7 @@ async fn chat(
                                     ChatCompletionRequestUserMessageContent::Array(array) => {
                                         let mut concatenated_text = String::new();
                                         let mut file_urls = Vec::new();
-                    
+
                                         for part in &array {
                                             match part {
                                                 ChatCompletionRequestMessageContentPart::Text(text_part) => {
@@ -407,15 +415,15 @@ async fn chat(
                                     error!("Error creating message from OAI message: {:?}", e);
                                 }
                             };
-                                                        
+
                             if role == Role::User && routes::memory::use_message_for_memory(&app_state, &content).await.unwrap_or(false) {
                                 let last_msg_range = (start_time, Utc::now());
                                 match routes::memory::generate_memories_from_chat_history(
-                                    &app_state, 
-                                    None, 
-                                    &user_id, 
-                                    Some(1), 
-                                    Some(1), 
+                                    &app_state,
+                                    None,
+                                    &user_id,
+                                    Some(1),
+                                    Some(1),
                                     Some(last_msg_range)
                                 )
                                 .await
