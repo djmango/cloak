@@ -260,12 +260,9 @@ async fn chat(
         .take_while(|item_result| match item_result {
             Ok(item) => {
                 if let Some(choice) = item.choices.first() {
-                    match &choice.finish_reason {
-                        Some(_) => {
-                            debug!("Chat completion finished");
-                            return futures::future::ready(false);
-                        }
-                        None => {}
+                    if choice.finish_reason.is_some() {
+                        debug!("Chat completion finished");
+                        return futures::future::ready(false);
                     }
                 }
                 futures::future::ready(true)
