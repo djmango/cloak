@@ -1,3 +1,4 @@
+use crate::models::Invite;
 use actix_web::web::Json;
 use actix_web::{get, web, Responder};
 use anyhow::anyhow;
@@ -18,14 +19,15 @@ use utoipa::OpenApi;
 use crate::middleware::auth::AuthenticatedUser;
 use crate::routes::auth::{user_email_to_user, user_id_to_user};
 use crate::types::{
-    CheckoutRequest, InviteQuery, LoopsContact, ManageResponse, PaymentSuccessRequest, UserInvite,
+    CheckoutRequest, InviteQuery, LoopsContact, ManageResponse, PaymentSuccessRequest,
+    UserInviteQuery,
 };
 use crate::{AppConfig, AppState};
 
 #[derive(OpenApi)]
 #[openapi(
     paths(get_invite, checkout, paid, manage),
-    components(schemas(CheckoutRequest, InviteQuery, ManageResponse, UserInvite))
+    components(schemas(CheckoutRequest, InviteQuery, ManageResponse, UserInviteQuery))
 )]
 pub struct ApiDoc;
 
@@ -36,25 +38,26 @@ pub struct ApiDoc;
 )]
 #[get("/invite")]
 async fn get_invite(
-    // app_state: web::Data<Arc<AppState>>,
+    app_state: web::Data<Arc<AppState>>,
     app_config: web::Data<Arc<AppConfig>>,
-    query: web::Query<UserInvite>,
+    query: web::Query<UserInviteQuery>,
 ) -> Result<impl Responder, actix_web::Error> {
     let mut user_invite = query.into_inner();
     user_invite.created_at = Utc::now().into();
 
-    // Store the user invite data in Shuttle Persist
-    // let result = app_state
-    //     .persist
-    //     .save::<UserInvite>(
-    //         &format!("user_invite:{}", &user_invite.email),
-    //         user_invite.clone(),
-    //     )
-    //     .map_err(|e| anyhow!("Failed to store user invite: {:?}", e));
-
-    // match result {
-    // Ok(_) => {
-    // info!("User invite stored successfully: {:?}", user_invite.email);
+    // Store the user invite data in the database
+    let invite = Invite::create_invite(
+        &app_state.pool,
+        &user_invite.email,
+        &user_invite.code,
+        &app_state.invite_cache,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to create invite: {:?}", e);
+        actix_web::error::ErrorInternalServerError(e)
+    })?;
+    info!("User invite stored successfully: {:?}", invite.email);
 
     // Send the user invite data to Loops asynchronously
     let loops_contact = LoopsContact {
@@ -87,57 +90,32 @@ async fn get_invite(
     actix_web::rt::spawn(send_future);
 
     Ok("User invite stored successfully")
-    // }
-    // Err(e) => {
-    //     error!("Failed to store user invite: {:?}", e);
-    //     Err(actix_web::error::ErrorInternalServerError(e.to_string()))
-    // }
-    // }
 }
 
 /// List all user invites or filter by a promotion code
-// #[utoipa::path(
-//     get,
-//     responses((status = 200, description = "List of user invites", body = Vec<UserInvite>, content_type = "application/json"))
-// )]
-// #[get("/list_invites")]
-// async fn list_invites(
-//     app_state: web::Data<Arc<AppState>>,
-//     query: web::Query<InviteQuery>,
-// ) -> Result<impl Responder, actix_web::Error> {
-//     let keys: Result<Vec<String>, anyhow::Error> = app_state
-//         .persist
-//         .list()
-//         .map_err(|e| anyhow!("Failed to list user invites: {:?}", e));
-
-//     match keys {
-//         Ok(keys) => {
-//             let mut user_invites: Vec<UserInvite> = Vec::new();
-//             for key in keys {
-//                 if key.starts_with("user_invite:") {
-//                     if let Ok(user_invite) = app_state.persist.load::<UserInvite>(&key) {
-//                         user_invites.push(user_invite);
-//                     }
-//                 }
-//             }
-
-//             if let Some(ref code) = query.code {
-//                 let filtered_invites: Vec<UserInvite> = user_invites
-//                     .into_iter()
-//                     .filter(|invite| invite.code == *code)
-//                     .collect();
-
-//                 Ok(web::Json(filtered_invites))
-//             } else {
-//                 Ok(web::Json(user_invites))
-//             }
-//         }
-//         Err(e) => {
-//             error!("Failed to list user invites: {:?}", e);
-//             Err(actix_web::error::ErrorInternalServerError(e.to_string()))
-//         }
-//     }
-// }
+#[utoipa::path(
+    get,
+    responses((status = 200, description = "List of user invites", body = Vec<Invite>, content_type = "application/json"))
+)]
+#[get("/list_invites")]
+async fn list_invites(
+    app_state: web::Data<Arc<AppState>>,
+    query: web::Query<InviteQuery>,
+) -> Result<impl Responder, actix_web::Error> {
+    if let Some(code) = &query.code {
+        // Get invites for specific code
+        let invites = Invite::get_invites_by_code(&app_state.pool, code)
+            .await
+            .map_err(|e| {
+                error!("Failed to get invites for code {}: {:?}", code, e);
+                actix_web::error::ErrorInternalServerError(e)
+            })?;
+        Ok(web::Json(invites))
+    } else {
+        // If neither email nor code provided, return error
+        Err(actix_web::error::ErrorBadRequest("Invite code is required"))
+    }
+}
 
 #[get("/payment_success")]
 async fn payment_success(
@@ -282,6 +260,7 @@ async fn checkout(
             CreateCheckoutSession {
                 customer: Some(customer.id.clone()),
                 // discounts,
+                allow_promotion_codes: Some(true),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),
@@ -294,6 +273,7 @@ async fn checkout(
             CreateCheckoutSession {
                 customer_email: checkout_request.email.as_str().into(),
                 // discounts,
+                allow_promotion_codes: Some(true),
                 line_items: vec![line_item].into(),
                 mode: CheckoutSessionMode::Subscription.into(),
                 subscription_data: Some(subscription_data),

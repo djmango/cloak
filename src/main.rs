@@ -1,4 +1,3 @@
-use crate::models::memory::Memory;
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::web;
@@ -6,7 +5,7 @@ use async_openai::{config::OpenAIConfig, Client};
 use chrono::Utc;
 use config::AppConfig;
 use futures::stream::{self, StreamExt};
-use models::User;
+use models::{Invite, Memory, User};
 use moka::future::Cache;
 use rand::seq::SliceRandom;
 use shuttle_actix_web::ShuttleActixWeb;
@@ -35,6 +34,7 @@ struct AppState {
     keywords_client: Client<OpenAIConfig>,
     stripe_client: stripe::Client,
     memory_cache: Cache<String, HashMap<Uuid, Memory>>,
+    invite_cache: Cache<String, HashMap<Uuid, Invite>>,
 }
 
 #[derive(OpenApi)]
@@ -69,10 +69,17 @@ async fn main(
         ),
         stripe_client: stripe::Client::new(app_config.stripe_secret_key.clone()),
         memory_cache: Cache::builder()
-            .max_capacity(1024 * 1024 * 1024) // 1GB limit (in bytes)
+            .max_capacity(1024 * 1024 * 10) // 10Mb limit
             .weigher(|_key, value: &HashMap<Uuid, Memory>| -> u32 {
                 let estimated_memory_size = 1000; // Assume each Memory object is roughly 1000 bytes
                 (value.len() * estimated_memory_size) as u32
+            })
+            .build(),
+        invite_cache: Cache::builder()
+            .max_capacity(1024 * 1024 * 10) // 10Mb limit
+            .weigher(|_key, value: &HashMap<Uuid, Invite>| -> u32 {
+                let estimated_invite_size = 1000; // Assume each Invite object is roughly 1000 bytes
+                (value.len() * estimated_invite_size) as u32
             })
             .build(),
     });
@@ -135,6 +142,7 @@ async fn main(
                     web::scope("/pay")
                         .service(routes::pay::checkout)
                         .service(routes::pay::get_invite)
+                        .service(routes::pay::list_invites)
                         .service(routes::pay::manage)
                         .service(routes::pay::paid)
                         .service(routes::pay::payment_success),

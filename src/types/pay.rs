@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, Clone, ToSchema)]
-pub struct UserInvite {
+pub struct UserInviteQuery {
     pub email: String,
     pub code: String,
     pub created_at: Option<DateTime<Utc>>,
